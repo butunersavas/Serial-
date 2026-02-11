@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard - Aylık Trend Analizi</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="dashboard">
+      <section class="card trend-card">
+        <header class="card-header">
+          <h2>Aylık Trend Analizi</h2>
+          <button class="chip">Tüm Kalemler</button>
+        </header>
+
+        <div class="chart-wrapper">
+          <canvas id="trendChart" width="1200" height="360" aria-label="Aylık trend grafiği"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <div id="warningModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="warningTitle">
+      <div class="modal-content">
+        <header class="modal-header">
+          <h3 id="warningTitle">Uyarılar</h3>
+        </header>
+
+        <div class="modal-body">
+          <h4>Bu ay bütçede satın alma kalemleriniz var</h4>
+
+          <label class="department-filter">
+            <span>Departman</span>
+            <select id="departmentSelect"></select>
+          </label>
+
+          <ul id="itemList" class="item-list"></ul>
+
+          <section class="warranty-section">
+            <h4>Garanti Uyarıları</h4>
+            <div>
+              <h5>Süresi dolanlar</h5>
+              <p id="expiredText"></p>
+            </div>
+            <div>
+              <h5>30 gün kalanlar</h5>
+              <p id="soonText"></p>
+            </div>
+          </section>
+        </div>
+
+        <footer class="modal-footer">
+          <button id="closeModal" class="btn btn-secondary">Kapat</button>
+          <button class="btn btn-primary">Seçimleri Kaydet</button>
+        </footer>
+      </div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
