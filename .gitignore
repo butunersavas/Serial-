@@ -1,0 +1,15 @@
+# Build outputs
+bin/
+obj/
+
+# User / IDE
+.vs/
+*.user
+*.suo
+
+# Binary assets should not be committed in this repo
+Resources/*.png
+Resources/*.jpg
+Resources/*.jpeg
+Resources/*.ico
+Resources/*.bmp
