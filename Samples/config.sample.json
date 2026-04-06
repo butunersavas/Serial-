@@ -1,0 +1,84 @@
+{
+  "theme": "dark",
+  "title": "RADC Kiosk Launcher",
+  "requireWindowsAdminAuthInAdminMode": true,
+  "adminPinHash": "03AC674216F3E15C761EE1A5E255F067953623C8B388B4459E13F978D7C846F4",
+  "categories": ["General", "Support", "System"],
+  "applications": [
+    {
+      "id": "edge",
+      "title": "Microsoft Edge",
+      "iconPath": "C:\\ProgramData\\RadcKiosk\\icons\\edge.png",
+      "type": "exe",
+      "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "arguments": "--kiosk https://intranet.example.local --edge-kiosk-type=fullscreen",
+      "workingDirectory": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application",
+      "visible": true,
+      "requiresAdmin": false,
+      "category": "General"
+    },
+    {
+      "id": "remoteapp-finance",
+      "title": "Finance RemoteApp",
+      "iconPath": "",
+      "type": "lnk",
+      "path": "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\FinanceApp.lnk",
+      "arguments": "",
+      "workingDirectory": "",
+      "visible": true,
+      "requiresAdmin": false,
+      "category": "Support"
+    }
+  ],
+  "systemTools": [
+    {
+      "title": "Aygıtlar ve Yazıcılar",
+      "type": "control",
+      "command": "control printers",
+      "arguments": "",
+      "requiresAdmin": true
+    },
+    {
+      "title": "Programlar ve Özellikler",
+      "type": "control",
+      "command": "appwiz.cpl",
+      "arguments": "",
+      "requiresAdmin": true
+    },
+    {
+      "title": "Ağ Bağlantıları",
+      "type": "control",
+      "command": "ncpa.cpl",
+      "arguments": "",
+      "requiresAdmin": true
+    },
+    {
+      "title": "Hizmetler",
+      "type": "exe",
+      "command": "C:\\Windows\\System32\\services.msc",
+      "arguments": "",
+      "requiresAdmin": true
+    },
+    {
+      "title": "Olay Görüntüleyici",
+      "type": "exe",
+      "command": "C:\\Windows\\System32\\eventvwr.msc",
+      "arguments": "",
+      "requiresAdmin": true
+    },
+    {
+      "title": "Yazıcı Yönetimi",
+      "type": "exe",
+      "command": "C:\\Windows\\System32\\printmanagement.msc",
+      "arguments": "",
+      "requiresAdmin": true
+    },
+    {
+      "title": "Windows Update",
+      "type": "settings",
+      "command": "ms-settings:windowsupdate",
+      "arguments": "",
+      "requiresAdmin": false
+    }
+  ]
+}
