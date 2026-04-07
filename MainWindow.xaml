@@ -21,7 +21,7 @@
         <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="16,8">
             <DockPanel>
                 <TextBlock Text="{Binding DeviceName}" FontSize="18" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                <TextBlock Text="LAN: N/A" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding NetworkStatus}" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
                     <TextBlock Text="{Binding Clock}" FontSize="18" VerticalAlignment="Center" Margin="0,0,20,0"/>
                     <Button Command="{Binding HiddenCornerTapCommand}" Content="●" Width="28" Height="28" Padding="0" Margin="0"/>
