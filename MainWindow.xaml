@@ -9,27 +9,28 @@
         WindowStyle="None"
         WindowState="Maximized"
         Topmost="True"
+        ShowInTaskbar="False"
         ResizeMode="NoResize"
         Background="{StaticResource BackgroundBrush}">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="56"/>
+            <RowDefinition Height="58"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="40"/>
+            <RowDefinition Height="42"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="16,8">
-            <DockPanel>
-                <TextBlock Text="{Binding DeviceName}" FontSize="18" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                <TextBlock Text="{Binding NetworkStatus}" FontSize="16" VerticalAlignment="Center" HorizontalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                    <TextBlock Text="{Binding Clock}" FontSize="18" VerticalAlignment="Center" Margin="0,0,20,0"/>
-                    <Button Command="{Binding HiddenCornerTapCommand}" Content="●" Width="28" Height="28" Padding="0" Margin="0"/>
-                </StackPanel>
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="18,8">
+            <DockPanel LastChildFill="False">
+                <TextBlock Text="{Binding DeviceAndIp}" FontSize="19" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                <TextBlock Text="{Binding NetworkStatus}" FontSize="15" Margin="20,0,0,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                <Border DockPanel.Dock="Right" Width="28" Height="28" Background="#1E2633" CornerRadius="4"
+                        ToolTip="{Binding AdminEntryTooltip}"
+                        MouseLeftButtonDown="AdminTrigger_OnMouseDown"
+                        MouseLeftButtonUp="AdminTrigger_OnMouseUp"/>
             </DockPanel>
         </Border>
 
-        <Grid Grid.Row="1" Margin="24">
+        <Grid Grid.Row="1" Margin="16">
             <Grid>
                 <Grid.Style>
                     <Style TargetType="Grid">
@@ -50,12 +51,12 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="{StaticResource PanelBrush}" CornerRadius="10" Width="240" Height="180" Margin="10">
+                                <Border Background="{StaticResource PanelBrush}" CornerRadius="12" Width="220" Height="156" Margin="8">
                                     <Button Command="{Binding DataContext.LaunchAppCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                             CommandParameter="{Binding}">
                                         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                                            <Image Source="{Binding IconPath, Converter={StaticResource IconConverter}}" Width="64" Height="64" Margin="0,0,0,10"/>
-                                            <TextBlock Text="{Binding Title}" HorizontalAlignment="Center" FontSize="20" TextWrapping="Wrap"/>
+                                            <Image Source="{Binding IconPath, Converter={StaticResource IconConverter}}" Width="56" Height="56" Margin="0,0,0,8"/>
+                                            <TextBlock Text="{Binding Title}" HorizontalAlignment="Center" FontSize="18" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Button>
                                 </Border>
@@ -65,9 +66,9 @@
                 </ScrollViewer>
             </Grid>
 
-            <views:AdminView DataContext="{Binding AdminViewModel}">
-                <views:AdminView.Style>
-                    <Style TargetType="views:AdminView">
+            <Border Background="#DD11151D" CornerRadius="12" Padding="12">
+                <Border.Style>
+                    <Style TargetType="Border">
                         <Setter Property="Visibility" Value="Collapsed"/>
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding ShowAdminMode}" Value="True">
@@ -75,15 +76,27 @@
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                </views:AdminView.Style>
-            </views:AdminView>
+                </Border.Style>
+                <views:AdminView DataContext="{Binding AdminViewModel}">
+                    <views:AdminView.Style>
+                        <Style TargetType="views:AdminView">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ShowAdminMode}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </views:AdminView.Style>
+                </views:AdminView>
+            </Border>
         </Grid>
 
         <Border Grid.Row="2" Background="{StaticResource PanelBrush}" Padding="12,6">
             <DockPanel>
-                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="15"/>
+                <TextBlock Text="{Binding StatusMessage}" VerticalAlignment="Center" FontSize="14"/>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                    <Button Content="Yenile" Command="{Binding RefreshCommand}" FontSize="14" Padding="12,4"/>
+                    <Button Content="{Binding RefreshButtonText}" Command="{Binding RefreshCommand}" FontSize="14" Padding="12,4"/>
                 </StackPanel>
             </DockPanel>
         </Border>

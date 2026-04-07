@@ -56,6 +56,16 @@ public class ConfigService(ILogService logService) : IConfigService
 
     public (bool IsValid, string Message) Validate(AppConfig config)
     {
+        if (string.IsNullOrWhiteSpace(config.Language))
+        {
+            return (false, "language boş olamaz.");
+        }
+
+        if (string.IsNullOrWhiteSpace(config.AdminPinHash) && string.IsNullOrWhiteSpace(config.AdminPin))
+        {
+            return (false, "adminPinHash veya adminPin zorunludur.");
+        }
+
         foreach (var app in config.Applications)
         {
             if (string.IsNullOrWhiteSpace(app.Id) || string.IsNullOrWhiteSpace(app.Title))
@@ -98,18 +108,30 @@ public class ConfigService(ILogService logService) : IConfigService
     private static AppConfig CreateDefault() => new()
     {
         Title = "RADC Kiosk Launcher",
+        Language = "tr-TR",
+        ShowDeviceIp = true,
+        ShowNetworkStatus = true,
         RequireWindowsAdminAuthInAdminMode = false,
         AdminPinHash = Helpers.SecurityHelper.ComputeSha256("1234"),
-        Categories = ["General", "System"],
+        Categories = ["Work Resources", "Sistem"],
         Applications =
         [
             new KioskAppItem
             {
-                Id = "notepad",
-                Title = "Notepad",
-                Type = "exe",
-                Path = @"C:\Windows\System32\notepad.exe",
-                Category = "General",
+                Id = "serendip-yonetim",
+                Title = "Serendip Yonetim",
+                Type = "lnk",
+                Path = @"C:\Work Resources\Serendip Yonetim (Work Resources).lnk",
+                Category = "Work Resources",
+                Visible = true
+            },
+            new KioskAppItem
+            {
+                Id = "excel-work-resource",
+                Title = "Excel",
+                Type = "lnk",
+                Path = @"C:\Work Resources\Excel (Work Resources).lnk",
+                Category = "Work Resources",
                 Visible = true
             }
         ],
@@ -117,7 +139,7 @@ public class ConfigService(ILogService logService) : IConfigService
         [
             new SystemToolItem
             {
-                Title = "Programs and Features",
+                Title = "Programlar ve Özellikler",
                 Type = "control",
                 Command = "appwiz.cpl",
                 RequiresAdmin = true
