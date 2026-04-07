@@ -43,6 +43,8 @@ public class AdminViewModel : ObservableObject
         AddCategoryCommand = new RelayCommand(AddCategory);
         EditIconCommand = new RelayCommand(EditIcon, () => SelectedApp is not null);
         LaunchToolCommand = new RelayCommand<SystemToolItem>(LaunchTool);
+        RebootCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/r /t 0"));
+        LogoutCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/l"));
     }
 
     public ObservableCollection<KioskAppItem> Applications { get; }
@@ -62,6 +64,8 @@ public class AdminViewModel : ObservableObject
     public ICommand AddCategoryCommand { get; }
     public ICommand EditIconCommand { get; }
     public ICommand LaunchToolCommand { get; }
+    public ICommand RebootCommand { get; }
+    public ICommand LogoutCommand { get; }
 
     public string Status
     {

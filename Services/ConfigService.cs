@@ -85,6 +85,11 @@ public class ConfigService(ILogService logService) : IConfigService
             {
                 return (false, "SystemTool title/command boş olamaz.");
             }
+
+            if (!PathValidationService.IsValidPath(tool.Command, tool.Type))
+            {
+                return (false, $"Geçersiz system tool command: {tool.Command}");
+            }
         }
 
         return (true, "OK");

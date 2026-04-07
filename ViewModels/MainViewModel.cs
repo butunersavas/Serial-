@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -18,6 +19,7 @@ public class MainViewModel : ObservableObject
     private string _statusMessage = "Hazır";
     private string _clock = DateTime.Now.ToString("HH:mm:ss");
     private string _deviceName = Environment.MachineName;
+    private string _networkStatus = "LAN: N/A";
     private bool _showAdminMode;
     private int _cornerTapCounter;
     private DateTime _lastCornerTap = DateTime.MinValue;
@@ -39,9 +41,14 @@ public class MainViewModel : ObservableObject
         RebootCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/r /t 0"));
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        timer.Tick += (_, _) => Clock = DateTime.Now.ToString("HH:mm:ss");
+        timer.Tick += (_, _) =>
+        {
+            Clock = DateTime.Now.ToString("HH:mm:ss");
+            NetworkStatus = ResolveNetworkStatus();
+        };
         timer.Start();
 
+        NetworkStatus = ResolveNetworkStatus();
         LoadConfig();
     }
 
@@ -77,6 +84,12 @@ public class MainViewModel : ObservableObject
     {
         get => _deviceName;
         set => SetProperty(ref _deviceName, value);
+    }
+
+    public string NetworkStatus
+    {
+        get => _networkStatus;
+        set => SetProperty(ref _networkStatus, value);
     }
 
     public bool ShowAdminMode
@@ -207,5 +220,23 @@ public class MainViewModel : ObservableObject
     {
         ShowAdminMode = false;
         LoadConfig();
+    }
+
+    private static string ResolveNetworkStatus()
+    {
+        try
+        {
+            var isUp = NetworkInterface
+                .GetAllNetworkInterfaces()
+                .Any(nic => nic.OperationalStatus == OperationalStatus.Up &&
+                            nic.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
+                            nic.NetworkInterfaceType != NetworkInterfaceType.Tunnel);
+
+            return isUp ? "LAN: Bağlı" : "LAN: Bağlı değil";
+        }
+        catch
+        {
+            return "LAN: N/A";
+        }
     }
 }
