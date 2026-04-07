@@ -27,12 +27,12 @@ public class ConfigService(ILogService logService) : IConfigService
 
         var json = File.ReadAllText(ConfigPath);
         var config = JsonSerializer.Deserialize<AppConfig>(json, _serializerOptions)
-                     ?? throw new InvalidOperationException("Config deserialize edilemedi.");
+                     ?? throw new InvalidOperationException("Yapılandırma çözümlenemedi.");
 
         var validation = Validate(config);
         if (!validation.IsValid)
         {
-            throw new InvalidDataException($"Config validation hatası: {validation.Message}");
+            throw new InvalidDataException($"Yapılandırma doğrulama hatası: {validation.Message}");
         }
 
         return config;
@@ -51,7 +51,7 @@ public class ConfigService(ILogService logService) : IConfigService
         var json = JsonSerializer.Serialize(config, _serializerOptions);
         File.WriteAllText(ConfigPath, json);
 
-        logService.Info("Config kaydedildi.");
+        logService.Info("Yapılandırma kaydedildi.");
     }
 
     public (bool IsValid, string Message) Validate(AppConfig config)
@@ -105,45 +105,85 @@ public class ConfigService(ILogService logService) : IConfigService
         return (true, "OK");
     }
 
-    private static AppConfig CreateDefault() => new()
+    private static AppConfig CreateDefault()
     {
-        Title = "RADC Kiosk Launcher",
-        Language = "tr-TR",
-        ShowDeviceIp = true,
-        ShowNetworkStatus = true,
-        RequireWindowsAdminAuthInAdminMode = false,
-        AdminPinHash = Helpers.SecurityHelper.ComputeSha256("1234"),
-        Categories = ["Work Resources", "Sistem"],
-        Applications =
-        [
-            new KioskAppItem
+        var applications = DiscoverWorkResourcesApps();
+
+        if (applications.Count == 0)
+        {
+            applications =
+            [
+                new KioskAppItem
+                {
+                    Id = "serendip-yonetim",
+                    Title = "Serendip Yönetim",
+                    Type = "lnk",
+                    Path = @"C:\Work Resources\Serendip Yonetim (Work Resources).lnk",
+                    Category = "Work Resources",
+                    Visible = true
+                },
+                new KioskAppItem
+                {
+                    Id = "excel-work-resource",
+                    Title = "Excel",
+                    Type = "lnk",
+                    Path = @"C:\Work Resources\Excel (Work Resources).lnk",
+                    Category = "Work Resources",
+                    Visible = true
+                }
+            ];
+        }
+
+        return new AppConfig
+        {
+            Title = "RADC Kiosk Launcher",
+            Language = "tr-TR",
+            ShowDeviceIp = true,
+            ShowNetworkStatus = true,
+            RequireWindowsAdminAuthInAdminMode = false,
+            AdminPinHash = Helpers.SecurityHelper.ComputeSha256("1234"),
+            Categories = ["Work Resources", "Sistem"],
+            Applications = applications,
+            SystemTools =
+            [
+                new SystemToolItem { Title = "Aygıtlar ve Yazıcılar", Type = "control", Command = "control printers", RequiresAdmin = true },
+                new SystemToolItem { Title = "Programlar ve Özellikler", Type = "control", Command = "appwiz.cpl", RequiresAdmin = true },
+                new SystemToolItem { Title = "Ağ Bağlantıları", Type = "control", Command = "ncpa.cpl", RequiresAdmin = true },
+                new SystemToolItem { Title = "Hizmetler", Type = "control", Command = "services.msc", RequiresAdmin = true },
+                new SystemToolItem { Title = "Olay Görüntüleyici", Type = "control", Command = "eventvwr.msc", RequiresAdmin = true },
+                new SystemToolItem { Title = "Windows Update", Type = "settings", Command = "ms-settings:windowsupdate", RequiresAdmin = false }
+            ]
+        };
+    }
+
+    private static ObservableCollection<KioskAppItem> DiscoverWorkResourcesApps()
+    {
+        var result = new ObservableCollection<KioskAppItem>();
+        var workResourcesPath = @"C:\Work Resources";
+
+        if (!Directory.Exists(workResourcesPath))
+        {
+            return result;
+        }
+
+        var links = Directory.GetFiles(workResourcesPath, "*.lnk", SearchOption.TopDirectoryOnly)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Take(12);
+
+        foreach (var link in links)
+        {
+            result.Add(new KioskAppItem
             {
-                Id = "serendip-yonetim",
-                Title = "Serendip Yonetim",
+                Id = Path.GetFileNameWithoutExtension(link).ToLowerInvariant().Replace(' ', '-'),
+                Title = Path.GetFileNameWithoutExtension(link),
                 Type = "lnk",
-                Path = @"C:\Work Resources\Serendip Yonetim (Work Resources).lnk",
+                Path = link,
+                WorkingDirectory = workResourcesPath,
                 Category = "Work Resources",
                 Visible = true
-            },
-            new KioskAppItem
-            {
-                Id = "excel-work-resource",
-                Title = "Excel",
-                Type = "lnk",
-                Path = @"C:\Work Resources\Excel (Work Resources).lnk",
-                Category = "Work Resources",
-                Visible = true
-            }
-        ],
-        SystemTools =
-        [
-            new SystemToolItem
-            {
-                Title = "Programlar ve Özellikler",
-                Type = "control",
-                Command = "appwiz.cpl",
-                RequiresAdmin = true
-            }
-        ]
-    };
+            });
+        }
+
+        return result;
+    }
 }

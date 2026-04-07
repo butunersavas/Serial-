@@ -4,40 +4,32 @@ namespace RadcKioskLauncher.Resources;
 
 public static class TextResources
 {
-    // NOTE: Basit resource altyapısı; tr-TR varsayılan, en-US opsiyonel.
     private static readonly Dictionary<string, Dictionary<string, string>> Localized = new(StringComparer.OrdinalIgnoreCase)
     {
         ["tr-TR"] = new(StringComparer.OrdinalIgnoreCase)
         {
             ["Ready"] = "Hazır",
-            ["ConfigLoaded"] = "Konfigürasyon yüklendi.",
+            ["ConfigLoaded"] = "Yapılandırma yüklendi.",
             ["Refresh"] = "Yenile",
             ["AdminTooltip"] = "Yönetici Girişi",
-            ["NetworkConnected"] = "Ağ: Bağlı",
-            ["NetworkDisconnected"] = "Ağ: Yok",
-            ["NetworkUnknown"] = "Ağ: Bilinmiyor",
+            ["IpUnavailable"] = "IP Yok",
             ["PinFailed"] = "PIN doğrulanamadı.",
             ["AdminEnabled"] = "Yönetici paneli açıldı.",
             ["AdminRequired"] = "Bu öğe yönetici yetkisi gerektirir.",
             ["AuthFailed"] = "Windows yönetici doğrulaması başarısız",
             ["AdminModeReady"] = "Yönetici paneli hazır.",
             ["AppAdded"] = "Uygulama eklendi.",
-            ["AppRemoved"] = "Uygulama silindi.",
+            ["AppRemoved"] = "Öğe silindi.",
             ["SortUpdated"] = "Sıralama güncellendi.",
-            ["ConfigValidated"] = "Config doğrulandı.",
-            ["ConfigSaved"] = "Config kaydedildi.",
+            ["ConfigValidated"] = "Yapılandırma doğrulandı.",
+            ["ConfigSaved"] = "Yapılandırma kaydedildi.",
             ["ScreenRefreshed"] = "Kiosk ekranı yenilendi.",
-            ["IconUpdated"] = "İkon güncellendi.",
+            ["IconUpdated"] = "Simge güncellendi.",
             ["CategoryAdded"] = "Kategori eklendi",
             ["AdminPanelTitle"] = "Yönetici Paneli",
             ["KioskLoadErrorTitle"] = "Kiosk başlatılamadı",
-            ["KioskLoadErrorLine1"] = "Konfigürasyon dosyası geçersiz veya eksik.",
+            ["KioskLoadErrorLine1"] = "Yapılandırma dosyası geçersiz veya eksik.",
             ["KioskLoadErrorLine2"] = "Lütfen sistem yöneticinize başvurun."
-        },
-        ["en-US"] = new(StringComparer.OrdinalIgnoreCase)
-        {
-            ["Ready"] = "Ready",
-            ["Refresh"] = "Refresh"
         }
     };
 

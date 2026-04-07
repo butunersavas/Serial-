@@ -64,6 +64,17 @@ public class ProcessLaunchService(ILogService logService)
 
         if (type == "control")
         {
+            var command = pathOrCommand.Trim().ToLowerInvariant();
+            if (command == "control printers")
+            {
+                return new ProcessStartInfo("control.exe", "printers") { UseShellExecute = true };
+            }
+
+            if (command.EndsWith(".msc", StringComparison.OrdinalIgnoreCase))
+            {
+                return new ProcessStartInfo("mmc.exe", $"{pathOrCommand} {args}".Trim()) { UseShellExecute = true };
+            }
+
             return new ProcessStartInfo("control.exe", $"{pathOrCommand} {args}".Trim()) { UseShellExecute = true };
         }
 

@@ -4,6 +4,7 @@ using System.Windows.Input;
 using Microsoft.Win32;
 using RadcKioskLauncher.Helpers;
 using RadcKioskLauncher.Models;
+using RadcKioskLauncher.Resources;
 using RadcKioskLauncher.Services;
 
 namespace RadcKioskLauncher.ViewModels;
@@ -15,8 +16,9 @@ public class AdminViewModel : ObservableObject
     private readonly ProcessLaunchService _launchService;
     private readonly Action _closeAction;
     private readonly AppConfig _config;
-    private string _status = "Yönetici paneli hazır.";
+    private string _status = TextResources.T("AdminModeReady");
     private KioskAppItem? _selectedApp;
+    private SystemToolTemplate? _selectedToolTemplate;
 
     public AdminViewModel(IConfigService configService, ILogService logService, ProcessLaunchService launchService, AppConfig config, Action closeAction)
     {
@@ -30,19 +32,37 @@ public class AdminViewModel : ObservableObject
         Categories = config.Categories;
         SystemTools = config.SystemTools;
 
-        AddAppCommand = new RelayCommand(AddApp);
+        AvailableSystemTools =
+        [
+            new SystemToolTemplate("Aygıtlar ve Yazıcılar", "control", "control printers"),
+            new SystemToolTemplate("Programlar ve Özellikler", "control", "appwiz.cpl"),
+            new SystemToolTemplate("Ağ Bağlantıları", "control", "ncpa.cpl"),
+            new SystemToolTemplate("Hizmetler", "control", "services.msc"),
+            new SystemToolTemplate("Olay Görüntüleyici", "control", "eventvwr.msc"),
+            new SystemToolTemplate("Windows Update", "settings", "ms-settings:windowsupdate"),
+            new SystemToolTemplate("Ağ Ayarları", "settings", "ms-settings:network"),
+            new SystemToolTemplate("Yazıcılar", "settings", "ms-settings:printers"),
+            new SystemToolTemplate("Uygulamalar", "settings", "ms-settings:appsfeatures")
+        ];
+
+        SelectedToolTemplate = AvailableSystemTools.FirstOrDefault();
+
+        AddExeCommand = new RelayCommand(() => AddApp("exe"));
+        AddLnkCommand = new RelayCommand(() => AddApp("lnk"));
+        AddFolderCommand = new RelayCommand(AddFolder);
         RemoveAppCommand = new RelayCommand(RemoveSelectedApp, () => SelectedApp is not null);
         MoveUpCommand = new RelayCommand(MoveUp, () => CanMove(-1));
         MoveDownCommand = new RelayCommand(MoveDown, () => CanMove(1));
         ValidateConfigCommand = new RelayCommand(ValidateConfig);
         ReloadCommand = new RelayCommand(ReloadLauncher);
-        RefreshScreenCommand = new RelayCommand(() => Status = "Ekran yenilendi.");
+        RefreshScreenCommand = new RelayCommand(() => Status = TextResources.T("ScreenRefreshed"));
         OpenLogsCommand = new RelayCommand(OpenLogs);
         CloseAdminModeCommand = new RelayCommand(() => _closeAction());
         SaveCommand = new RelayCommand(Save);
         AddCategoryCommand = new RelayCommand(AddCategory);
         EditIconCommand = new RelayCommand(EditIcon, () => SelectedApp is not null);
         LaunchToolCommand = new RelayCommand<SystemToolItem>(LaunchTool);
+        AddSystemToolCommand = new RelayCommand(AddSystemTool, () => SelectedToolTemplate is not null);
         RebootCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/r /t 0"));
         LogoutCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/l"));
     }
@@ -50,8 +70,11 @@ public class AdminViewModel : ObservableObject
     public ObservableCollection<KioskAppItem> Applications { get; }
     public ObservableCollection<SystemToolItem> SystemTools { get; }
     public ObservableCollection<string> Categories { get; }
+    public ObservableCollection<SystemToolTemplate> AvailableSystemTools { get; }
 
-    public ICommand AddAppCommand { get; }
+    public ICommand AddExeCommand { get; }
+    public ICommand AddLnkCommand { get; }
+    public ICommand AddFolderCommand { get; }
     public ICommand RemoveAppCommand { get; }
     public ICommand MoveUpCommand { get; }
     public ICommand MoveDownCommand { get; }
@@ -64,6 +87,7 @@ public class AdminViewModel : ObservableObject
     public ICommand AddCategoryCommand { get; }
     public ICommand EditIconCommand { get; }
     public ICommand LaunchToolCommand { get; }
+    public ICommand AddSystemToolCommand { get; }
     public ICommand RebootCommand { get; }
     public ICommand LogoutCommand { get; }
 
@@ -85,12 +109,25 @@ public class AdminViewModel : ObservableObject
         }
     }
 
-    private void AddApp()
+    public SystemToolTemplate? SelectedToolTemplate
     {
+        get => _selectedToolTemplate;
+        set
+        {
+            if (SetProperty(ref _selectedToolTemplate, value))
+            {
+                (AddSystemToolCommand as RelayCommand)?.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    private void AddApp(string type)
+    {
+        var filter = type == "lnk" ? "Kısayol (*.lnk)|*.lnk" : "Uygulama (*.exe)|*.exe";
         var dialog = new OpenFileDialog
         {
-            Title = "Uygulama seç",
-            Filter = "Uygulamalar (*.exe;*.lnk)|*.exe;*.lnk"
+            Title = type == "lnk" ? "Kısayol seç" : "Uygulama seç",
+            Filter = filter
         };
 
         if (dialog.ShowDialog() != true)
@@ -98,21 +135,62 @@ public class AdminViewModel : ObservableObject
             return;
         }
 
-        var extension = Path.GetExtension(dialog.FileName).ToLowerInvariant();
-        var app = new KioskAppItem
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Title = Path.GetFileNameWithoutExtension(dialog.FileName),
-            Type = extension == ".lnk" ? "lnk" : "exe",
-            Path = dialog.FileName,
-            WorkingDirectory = Path.GetDirectoryName(dialog.FileName) ?? string.Empty,
-            Visible = true,
-            Category = Categories.FirstOrDefault() ?? "General"
-        };
-
+        var app = CreateAppItem(type, dialog.FileName);
         Applications.Add(app);
         SelectedApp = app;
-        Status = "Uygulama eklendi.";
+        Status = TextResources.T("AppAdded");
+    }
+
+    private void AddFolder()
+    {
+        var dialog = new OpenFolderDialog { Title = "Klasör seç" };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var app = CreateAppItem("folder", dialog.FolderName);
+        Applications.Add(app);
+        SelectedApp = app;
+        Status = TextResources.T("AppAdded");
+    }
+
+    private KioskAppItem CreateAppItem(string type, string fullPath)
+    {
+        return new KioskAppItem
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Title = Path.GetFileNameWithoutExtension(fullPath),
+            Type = type,
+            Path = fullPath,
+            WorkingDirectory = type == "folder" ? fullPath : Path.GetDirectoryName(fullPath) ?? string.Empty,
+            Visible = true,
+            Category = Categories.FirstOrDefault() ?? "Genel"
+        };
+    }
+
+    private void AddSystemTool()
+    {
+        if (SelectedToolTemplate is null)
+        {
+            return;
+        }
+
+        if (SystemTools.Any(t => t.Title.Equals(SelectedToolTemplate.Title, StringComparison.OrdinalIgnoreCase)))
+        {
+            Status = "Bu sistem aracı zaten listede.";
+            return;
+        }
+
+        SystemTools.Add(new SystemToolItem
+        {
+            Title = SelectedToolTemplate.Title,
+            Type = SelectedToolTemplate.Type,
+            Command = SelectedToolTemplate.Command,
+            RequiresAdmin = true
+        });
+
+        Status = "Sistem aracı eklendi.";
     }
 
     private void RemoveSelectedApp()
@@ -123,7 +201,7 @@ public class AdminViewModel : ObservableObject
         }
 
         Applications.Remove(SelectedApp);
-        Status = "Uygulama silindi.";
+        Status = TextResources.T("AppRemoved");
     }
 
     private bool CanMove(int direction)
@@ -156,19 +234,19 @@ public class AdminViewModel : ObservableObject
         }
 
         Applications.Move(idx, target);
-        Status = "Sıralama güncellendi.";
+        Status = TextResources.T("SortUpdated");
     }
 
     private void ValidateConfig()
     {
         var result = _configService.Validate(_config);
-        Status = result.IsValid ? "Config doğrulandı." : $"Config hatalı: {result.Message}";
+        Status = result.IsValid ? TextResources.T("ConfigValidated") : $"Yapılandırma hatalı: {result.Message}";
     }
 
     private void Save()
     {
         _configService.Save(_config);
-        Status = "Config kaydedildi.";
+        Status = TextResources.T("ConfigSaved");
     }
 
     private void ReloadLauncher()
@@ -181,19 +259,19 @@ public class AdminViewModel : ObservableObject
     {
         var item = new KioskAppItem
         {
-            Title = "Logs",
+            Title = "Kayıtlar",
             Type = "exe",
             Path = @"C:\Windows\explorer.exe",
             Arguments = _logService.LogDirectory
         };
 
-        _launchService.Launch(item, out var message);
+        _launchService.Launch(item, out var message, out _);
         Status = message;
     }
 
     private void AddCategory()
     {
-        var newCategory = $"Category-{Categories.Count + 1}";
+        var newCategory = $"Kategori-{Categories.Count + 1}";
         Categories.Add(newCategory);
         Status = $"Kategori eklendi: {newCategory}";
     }
@@ -205,14 +283,14 @@ public class AdminViewModel : ObservableObject
             return;
         }
 
-        var dialog = new OpenFileDialog { Filter = "Icon/Png (*.ico;*.png)|*.ico;*.png" };
+        var dialog = new OpenFileDialog { Filter = "Simge/Görsel (*.ico;*.png)|*.ico;*.png" };
         if (dialog.ShowDialog() != true)
         {
             return;
         }
 
         SelectedApp.IconPath = dialog.FileName;
-        Status = "İkon güncellendi.";
+        Status = TextResources.T("IconUpdated");
     }
 
     private void LaunchTool(SystemToolItem? tool)
@@ -233,4 +311,11 @@ public class AdminViewModel : ObservableObject
         (MoveDownCommand as RelayCommand)?.NotifyCanExecuteChanged();
         (EditIconCommand as RelayCommand)?.NotifyCanExecuteChanged();
     }
+}
+
+public class SystemToolTemplate(string title, string type, string command)
+{
+    public string Title { get; } = title;
+    public string Type { get; } = type;
+    public string Command { get; } = command;
 }

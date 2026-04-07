@@ -11,7 +11,7 @@
   "applications": [
     {
       "id": "serendip-yonetim",
-      "title": "Serendip Yonetim",
+      "title": "Serendip Yönetim",
       "iconPath": "C:\\ProgramData\\RadcKiosk\\icons\\serendip.png",
       "type": "lnk",
       "path": "C:\\Work Resources\\Serendip Yonetim (Work Resources).lnk",
@@ -47,33 +47,14 @@
     }
   ],
   "systemTools": [
-    {
-      "title": "Aygıtlar ve Yazıcılar",
-      "type": "control",
-      "command": "control printers",
-      "arguments": "",
-      "requiresAdmin": true
-    },
-    {
-      "title": "Programlar ve Özellikler",
-      "type": "control",
-      "command": "appwiz.cpl",
-      "arguments": "",
-      "requiresAdmin": true
-    },
-    {
-      "title": "Ağ Bağlantıları",
-      "type": "control",
-      "command": "ncpa.cpl",
-      "arguments": "",
-      "requiresAdmin": true
-    },
-    {
-      "title": "Windows Update",
-      "type": "settings",
-      "command": "ms-settings:windowsupdate",
-      "arguments": "",
-      "requiresAdmin": false
-    }
+    { "title": "Aygıtlar ve Yazıcılar", "type": "control", "command": "control printers", "arguments": "", "requiresAdmin": true },
+    { "title": "Programlar ve Özellikler", "type": "control", "command": "appwiz.cpl", "arguments": "", "requiresAdmin": true },
+    { "title": "Ağ Bağlantıları", "type": "control", "command": "ncpa.cpl", "arguments": "", "requiresAdmin": true },
+    { "title": "Hizmetler", "type": "control", "command": "services.msc", "arguments": "", "requiresAdmin": true },
+    { "title": "Olay Görüntüleyici", "type": "control", "command": "eventvwr.msc", "arguments": "", "requiresAdmin": true },
+    { "title": "Windows Update", "type": "settings", "command": "ms-settings:windowsupdate", "arguments": "", "requiresAdmin": false },
+    { "title": "Ağ Ayarları", "type": "settings", "command": "ms-settings:network", "arguments": "", "requiresAdmin": false },
+    { "title": "Yazıcılar", "type": "settings", "command": "ms-settings:printers", "arguments": "", "requiresAdmin": false },
+    { "title": "Uygulamalar", "type": "settings", "command": "ms-settings:appsfeatures", "arguments": "", "requiresAdmin": false }
   ]
 }

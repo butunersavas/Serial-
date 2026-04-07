@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using RadcKioskLauncher.Helpers;
 using RadcKioskLauncher.Services;
 using RadcKioskLauncher.ViewModels;
@@ -13,6 +14,8 @@ public partial class MainWindow : Window
     private readonly MainViewModel _vm;
 
     private const int SwShow = 5;
+    private const int GwlExStyle = -20;
+    private const int WsExToolWindow = 0x00000080;
 
     [LibraryImport("user32.dll")]
     private static partial bool SetForegroundWindow(nint hWnd);
@@ -20,9 +23,16 @@ public partial class MainWindow : Window
     [LibraryImport("user32.dll")]
     private static partial bool ShowWindow(nint hWnd, int nCmdShow);
 
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLong")]
+    private static partial int GetWindowLong32(nint hWnd, int nIndex);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLong")]
+    private static partial int SetWindowLong32(nint hWnd, int nIndex, int dwNewLong);
+
     public MainWindow()
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => HideFromAltTab();
 
         var logService = App.LogService;
         var configService = new ConfigService(logService);
@@ -69,6 +79,7 @@ public partial class MainWindow : Window
             WindowState = WindowState.Maximized;
             Activate();
             Topmost = true;
+            HideFromAltTab();
         });
     }
 
@@ -80,7 +91,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            // NOTE: Bazı uygulamalar input idle üretmez, akış devam eder.
+            // Bazı uygulamalar input idle üretmez.
         }
 
         for (var i = 0; i < 20; i++)
@@ -94,6 +105,41 @@ public partial class MainWindow : Window
             }
 
             Thread.Sleep(200);
+        }
+    }
+
+    private void HideFromAltTab()
+    {
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd == nint.Zero)
+        {
+            return;
+        }
+
+        var extendedStyle = GetWindowLong32(hwnd, GwlExStyle);
+        SetWindowLong32(hwnd, GwlExStyle, extendedStyle | WsExToolWindow);
+    }
+
+    private void AdminPinCancel_OnClick(object sender, RoutedEventArgs e)
+    {
+        AdminPinBox.Password = string.Empty;
+        _vm?.CancelAdminPin();
+    }
+
+    private void AdminPinSubmit_OnClick(object sender, RoutedEventArgs e)
+    {
+        _vm?.SubmitAdminPin(AdminPinBox.Password);
+        if (_vm is { ShowPinOverlay: false })
+        {
+            AdminPinBox.Password = string.Empty;
+        }
+    }
+
+    private void AdminPinBox_OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            AdminPinSubmit_OnClick(sender, e);
         }
     }
 }
