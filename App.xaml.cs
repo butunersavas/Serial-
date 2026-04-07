@@ -1,5 +1,6 @@
 using System.Windows;
 using RadcKioskLauncher.Helpers;
+using RadcKioskLauncher.Resources;
 using RadcKioskLauncher.Services;
 
 namespace RadcKioskLauncher;
@@ -10,6 +11,9 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // NOTE: Varsayılan dil Türkçe.
+        TextResources.SetCulture("tr-TR");
+
         DispatcherUnhandledException += (_, args) =>
         {
             LogService.Error("Unhandled UI exception", args.Exception);

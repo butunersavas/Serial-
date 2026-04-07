@@ -5,8 +5,9 @@ namespace RadcKioskLauncher.Services;
 
 public class ProcessLaunchService(ILogService logService)
 {
-    public bool Launch(KioskAppItem app, out string message)
+    public bool Launch(KioskAppItem app, out string message, out Process? process)
     {
+        process = null;
         var itemType = app.Type.ToLowerInvariant();
         if (!PathValidationService.IsValidPath(app.Path, itemType))
         {
@@ -17,7 +18,7 @@ public class ProcessLaunchService(ILogService logService)
         try
         {
             var processStartInfo = BuildStartInfo(app.Path, app.Arguments, app.WorkingDirectory, itemType);
-            Process.Start(processStartInfo);
+            process = Process.Start(processStartInfo);
             message = $"{app.Title} başlatıldı.";
             logService.Info(message);
             return true;
@@ -64,6 +65,11 @@ public class ProcessLaunchService(ILogService logService)
         if (type == "control")
         {
             return new ProcessStartInfo("control.exe", $"{pathOrCommand} {args}".Trim()) { UseShellExecute = true };
+        }
+
+        if (type == "folder")
+        {
+            return new ProcessStartInfo("explorer.exe", $"\"{pathOrCommand}\"") { UseShellExecute = true };
         }
 
         return new ProcessStartInfo

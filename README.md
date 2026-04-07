@@ -2,20 +2,30 @@
 
 Windows 11 IoT Enterprise LTSC için shell replacement kiosk launcher örneği.
 
+## Yeni Özellikler (Bu Revizyon)
+- Varsayılan `tr-TR` dil yapısı ve merkezi metin kaynağı (`Resources/TextResources.cs`).
+- Üst bar sadeleştirildi: `CihazAdı | IPv4` + opsiyonel ağ durumu.
+- Gizli yönetici girişi alanı (5 saniye basılı tutma + tooltip: **Yönetici Girişi**).
+- PIN tabanlı admin doğrulama (`adminPinHash` + geçiş için `adminPin` fallback).
+- Admin panel launcher içinde overlay olarak çalışır (ayrı pencere açılmaz).
+- Uygulama kartı tıklanınca launcher kendini gizler, başlatılan uygulamayı foreground'a getirir; süreç kapanınca launcher geri gelir ve tekrar topmost olur.
+- `folder` tipi desteklendi.
+- Windows araçlarında whitelist sıkılaştırıldı (`control` ve `ms-settings` için güvenli liste).
+- Alt+Tab görünürlüğünü azaltmak için launcher taskbar dışına alındı (`ShowInTaskbar=false`).
+- Örnek config Notepad yerine Work Resources `.lnk` kayıtlarını içerir.
+
 ## Özellikler
 - Explorer yerine shell çalışacak şekilde tasarlanmış **tam ekran / bordersız / topmost** WPF launcher.
 - MVVM + katmanlı yapı: `Models`, `Services`, `ViewModels`, `Views`, `Helpers`.
-- Config tabanlı whitelist uygulama çalıştırma (`exe`, `lnk`, `control`, `settings`).
-- RemoteApp senaryolarını bozmamak için `.lnk` açılışı `UseShellExecute=true` ile desteklenir.
-- Hidden Admin Mode (köşe tıklama veya `Ctrl+Shift+F12`) + PIN doğrulama + opsiyonel Windows admin kimlik doğrulaması.
+- Config tabanlı whitelist uygulama çalıştırma (`exe`, `lnk`, `folder`, `control`, `settings`).
+- Hidden Admin Mode (`Ctrl+Shift+F12` veya üst bardaki gizli alan) + PIN doğrulama + opsiyonel Windows admin kimlik doğrulaması.
 - Config bozulursa stack trace göstermeyen güvenli hata ekranı.
 - Log dizini: `C:\ProgramData\RadcKiosk\logs`.
 
 ## Dizinler
 - Config: `C:\ProgramData\RadcKiosk\config.json`
 - Logs: `C:\ProgramData\RadcKiosk\logs`
-
-Örnek config: `Samples/config.sample.json`
+- Örnek config: `Samples/config.sample.json`
 
 ## Build
 ```powershell
@@ -28,59 +38,22 @@ dotnet build
 dotnet publish -c Release -p:PublishProfile=Properties/PublishProfiles/win-x64-singlefile.pubxml
 ```
 
-Çıktı:
-`bin\Release\publish\win-x64-singlefile\RadcKioskLauncher.exe`
-
-## Shell Launcher entegrasyon notları
-> Not: Aşağıdaki komutlar yönetici PowerShell ile çalıştırılmalıdır.
-
-1. Shell Launcher özelliğini etkinleştirin:
-```powershell
-Enable-WindowsOptionalFeature -Online -FeatureName Client-EmbeddedShellLauncher -All
-```
-
-2. Shell Launcher sınıfını kullanarak shell ataması yapın (WMI/CIM):
-```powershell
-$namespace = 'root\\standardcimv2\\embedded'
-$className = 'WESL_UserSetting'
-
-# SID: BUILTIN\Administrators
-$adminSid = 'S-1-5-32-544'
-
-# Varsayılan shell (admin dışı tüm hesaplar)
-$defaultShell = 'C:\\Program Files\\RadcKiosk\\RadcKioskLauncher.exe'
-
-# Admin shell
-$explorerShell = 'explorer.exe'
-
-# Existing mappings temizleme (opsiyonel)
-Get-CimInstance -Namespace $namespace -ClassName $className | Remove-CimInstance -ErrorAction SilentlyContinue
-
-# Default mapping (null SID)
-Invoke-CimMethod -Namespace $namespace -ClassName $className -MethodName SetDefaultShell -Arguments @{
-    Shell = $defaultShell
-    DefaultAction = 0 # RestartShell
-}
-
-# Administrators mapping
-Invoke-CimMethod -Namespace $namespace -ClassName $className -MethodName SetCustomShell -Arguments @{
-    Sid = $adminSid
-    Shell = $explorerShell
-    DefaultAction = 0 # RestartShell
+## Config Şeması (özet)
+```json
+{
+  "language": "tr-TR",
+  "adminPinHash": "...",
+  "adminPin": "",
+  "showDeviceIp": true,
+  "showNetworkStatus": true,
+  "applications": [],
+  "systemTools": []
 }
 ```
 
-3. Cihazı yeniden başlatın.
-
-### Beklenen davranış
-- **BUILTIN\Administrators** grubunda shell = `explorer.exe`
-- Diğer kullanıcılarda shell = `RadcKioskLauncher.exe`
-- Launcher kapanırsa exit code üretir (ör. config hatası 20, unhandled exception 30, restart isteği 40).
-- `DefaultAction = RestartShell` olduğunda Shell Launcher launcher'ı yeniden başlatır.
-
-## Güvenlik notları
+## Güvenlik Notları
 - Uygulama sadece config whitelist içindeki uygulama/araçları başlatır.
 - Path validation: traversal (`..`, `"`) içeren girişler reddedilir.
+- `control`/`settings` açılışları sadece whitelist komutları kabul eder.
 - Admin Mode dışında yönetim butonları görünmez.
-- `requiresAdmin=true` öğelerde kullanıcıya uyarı mesajı verilir.
 - Ham exception detayları UI'da gösterilmez, log'a yazılır.

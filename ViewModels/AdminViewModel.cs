@@ -15,7 +15,7 @@ public class AdminViewModel : ObservableObject
     private readonly ProcessLaunchService _launchService;
     private readonly Action _closeAction;
     private readonly AppConfig _config;
-    private string _status = "Admin mode hazır.";
+    private string _status = "Yönetici paneli hazır.";
     private KioskAppItem? _selectedApp;
 
     public AdminViewModel(IConfigService configService, ILogService logService, ProcessLaunchService launchService, AppConfig config, Action closeAction)
@@ -112,7 +112,7 @@ public class AdminViewModel : ObservableObject
 
         Applications.Add(app);
         SelectedApp = app;
-        Status = "Whitelist uygulaması eklendi.";
+        Status = "Uygulama eklendi.";
     }
 
     private void RemoveSelectedApp()
@@ -123,7 +123,7 @@ public class AdminViewModel : ObservableObject
         }
 
         Applications.Remove(SelectedApp);
-        Status = "Whitelist uygulaması silindi.";
+        Status = "Uygulama silindi.";
     }
 
     private bool CanMove(int direction)

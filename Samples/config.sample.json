@@ -1,33 +1,49 @@
 {
   "theme": "dark",
   "title": "RADC Kiosk Launcher",
+  "language": "tr-TR",
+  "showDeviceIp": true,
+  "showNetworkStatus": true,
   "requireWindowsAdminAuthInAdminMode": true,
   "adminPinHash": "03AC674216F3E15C761EE1A5E255F067953623C8B388B4459E13F978D7C846F4",
-  "categories": ["General", "Support", "System"],
+  "adminPin": "",
+  "categories": ["Work Resources", "Sistem"],
   "applications": [
     {
-      "id": "edge",
-      "title": "Microsoft Edge",
-      "iconPath": "C:\\ProgramData\\RadcKiosk\\icons\\edge.png",
-      "type": "exe",
-      "path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-      "arguments": "--kiosk https://intranet.example.local --edge-kiosk-type=fullscreen",
-      "workingDirectory": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application",
+      "id": "serendip-yonetim",
+      "title": "Serendip Yonetim",
+      "iconPath": "C:\\ProgramData\\RadcKiosk\\icons\\serendip.png",
+      "type": "lnk",
+      "path": "C:\\Work Resources\\Serendip Yonetim (Work Resources).lnk",
+      "arguments": "",
+      "workingDirectory": "C:\\Work Resources",
       "visible": true,
       "requiresAdmin": false,
-      "category": "General"
+      "category": "Work Resources"
     },
     {
-      "id": "remoteapp-finance",
-      "title": "Finance RemoteApp",
+      "id": "excel",
+      "title": "Excel",
       "iconPath": "",
       "type": "lnk",
-      "path": "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\FinanceApp.lnk",
+      "path": "C:\\Work Resources\\Excel (Work Resources).lnk",
       "arguments": "",
-      "workingDirectory": "",
+      "workingDirectory": "C:\\Work Resources",
       "visible": true,
       "requiresAdmin": false,
-      "category": "Support"
+      "category": "Work Resources"
+    },
+    {
+      "id": "work-resources-folder",
+      "title": "Work Resources Klasörü",
+      "iconPath": "",
+      "type": "folder",
+      "path": "C:\\Work Resources",
+      "arguments": "",
+      "workingDirectory": "C:\\Work Resources",
+      "visible": false,
+      "requiresAdmin": false,
+      "category": "Work Resources"
     }
   ],
   "systemTools": [
@@ -49,27 +65,6 @@
       "title": "Ağ Bağlantıları",
       "type": "control",
       "command": "ncpa.cpl",
-      "arguments": "",
-      "requiresAdmin": true
-    },
-    {
-      "title": "Hizmetler",
-      "type": "exe",
-      "command": "C:\\Windows\\System32\\services.msc",
-      "arguments": "",
-      "requiresAdmin": true
-    },
-    {
-      "title": "Olay Görüntüleyici",
-      "type": "exe",
-      "command": "C:\\Windows\\System32\\eventvwr.msc",
-      "arguments": "",
-      "requiresAdmin": true
-    },
-    {
-      "title": "Yazıcı Yönetimi",
-      "type": "exe",
-      "command": "C:\\Windows\\System32\\printmanagement.msc",
       "arguments": "",
       "requiresAdmin": true
     },

@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Net.NetworkInformation;
-using System.Windows;
+using System.Net.Sockets;
 using System.Windows.Input;
 using System.Windows.Threading;
 using RadcKioskLauncher.Helpers;
 using RadcKioskLauncher.Models;
+using RadcKioskLauncher.Resources;
 using RadcKioskLauncher.Services;
 
 namespace RadcKioskLauncher.ViewModels;
@@ -16,13 +18,12 @@ public class MainViewModel : ObservableObject
     private readonly ProcessLaunchService _launchService;
     private readonly AdminAuthService _adminAuthService;
     private AppConfig _config = new();
-    private string _statusMessage = "Hazır";
-    private string _clock = DateTime.Now.ToString("HH:mm:ss");
+    private string _statusMessage = TextResources.T("Ready");
     private string _deviceName = Environment.MachineName;
-    private string _networkStatus = "LAN: N/A";
+    private string _deviceAndIp = Environment.MachineName;
+    private string _networkStatus = TextResources.T("NetworkUnknown");
     private bool _showAdminMode;
-    private int _cornerTapCounter;
-    private DateTime _lastCornerTap = DateTime.MinValue;
+    private DateTime _adminHoldStart = DateTime.MinValue;
 
     public MainViewModel(IConfigService configService, ILogService logService, ProcessLaunchService launchService, AdminAuthService adminAuthService)
     {
@@ -34,25 +35,21 @@ public class MainViewModel : ObservableObject
         LaunchAppCommand = new RelayCommand<KioskAppItem>(LaunchApp);
         LaunchSystemToolCommand = new RelayCommand<SystemToolItem>(LaunchSystemTool);
         RefreshCommand = new RelayCommand(LoadConfig);
-        HiddenCornerTapCommand = new RelayCommand(RegisterHiddenTap);
+        HiddenCornerTapCommand = new RelayCommand(TryOpenAdminMode);
         ShowAdminLoginCommand = new RelayCommand(TryOpenAdminMode);
         RestartCommand = new RelayCommand(() => ExitRequested?.Invoke(this, KioskExitCodes.ManualRestartRequested));
-        LogoutCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/l"));
-        RebootCommand = new RelayCommand(() => System.Diagnostics.Process.Start("shutdown", "/r /t 0"));
+        LogoutCommand = new RelayCommand(() => Process.Start("shutdown", "/l"));
+        RebootCommand = new RelayCommand(() => Process.Start("shutdown", "/r /t 0"));
 
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-        timer.Tick += (_, _) =>
-        {
-            Clock = DateTime.Now.ToString("HH:mm:ss");
-            NetworkStatus = ResolveNetworkStatus();
-        };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += (_, _) => UpdateHeaderFields();
         timer.Start();
 
-        NetworkStatus = ResolveNetworkStatus();
         LoadConfig();
     }
 
     public event EventHandler<int>? ExitRequested;
+    public event EventHandler<Process>? ExternalAppLaunched;
 
     public ObservableCollection<KioskAppItem> Apps { get; } = [];
     public ObservableCollection<SystemToolItem> SystemTools { get; } = [];
@@ -66,24 +63,22 @@ public class MainViewModel : ObservableObject
     public ICommand LogoutCommand { get; }
     public ICommand RebootCommand { get; }
 
-    public string Title => _config.Title;
-
     public string StatusMessage
     {
         get => _statusMessage;
         set => SetProperty(ref _statusMessage, value);
     }
 
-    public string Clock
-    {
-        get => _clock;
-        set => SetProperty(ref _clock, value);
-    }
-
     public string DeviceName
     {
         get => _deviceName;
         set => SetProperty(ref _deviceName, value);
+    }
+
+    public string DeviceAndIp
+    {
+        get => _deviceAndIp;
+        set => SetProperty(ref _deviceAndIp, value);
     }
 
     public string NetworkStatus
@@ -98,6 +93,8 @@ public class MainViewModel : ObservableObject
         set => SetProperty(ref _showAdminMode, value);
     }
 
+    public string RefreshButtonText => TextResources.T("Refresh");
+    public string AdminEntryTooltip => TextResources.T("AdminTooltip");
     public AdminViewModel? AdminViewModel { get; private set; }
 
     public void HandleKeyGesture(Key key, ModifierKeys modifiers)
@@ -108,9 +105,28 @@ public class MainViewModel : ObservableObject
         }
     }
 
+    public void StartAdminPressHold() => _adminHoldStart = DateTime.UtcNow;
+
+    public void EndAdminPressHold()
+    {
+        if (_adminHoldStart == DateTime.MinValue)
+        {
+            return;
+        }
+
+        var heldFor = DateTime.UtcNow - _adminHoldStart;
+        _adminHoldStart = DateTime.MinValue;
+
+        if (heldFor >= TimeSpan.FromSeconds(5))
+        {
+            TryOpenAdminMode();
+        }
+    }
+
     private void LoadConfig()
     {
         _config = _configService.Load();
+        TextResources.SetCulture(_config.Language);
         Apps.Clear();
 
         foreach (var app in _config.Applications.Where(a => a.Visible))
@@ -126,8 +142,10 @@ public class MainViewModel : ObservableObject
 
         AdminViewModel = new AdminViewModel(_configService, _logService, _launchService, _config, CloseAdminMode);
         RaisePropertyChanged(nameof(AdminViewModel));
-        RaisePropertyChanged(nameof(Title));
-        StatusMessage = "Konfigürasyon yüklendi.";
+        RaisePropertyChanged(nameof(RefreshButtonText));
+        RaisePropertyChanged(nameof(AdminEntryTooltip));
+        UpdateHeaderFields();
+        StatusMessage = TextResources.T("ConfigLoaded");
     }
 
     private void LaunchApp(KioskAppItem? app)
@@ -136,12 +154,17 @@ public class MainViewModel : ObservableObject
 
         if (app.RequiresAdmin)
         {
-            StatusMessage = "Bu uygulama yönetici yetkisi gerektirir.";
+            StatusMessage = TextResources.T("AdminRequired");
         }
 
-        if (_launchService.Launch(app, out var message))
+        if (_launchService.Launch(app, out var message, out var process))
         {
             StatusMessage = message;
+            if (process is not null)
+            {
+                ExternalAppLaunched?.Invoke(this, process);
+            }
+
             return;
         }
 
@@ -151,36 +174,8 @@ public class MainViewModel : ObservableObject
     private void LaunchSystemTool(SystemToolItem? tool)
     {
         if (tool is null) return;
-
-        if (tool.RequiresAdmin)
-        {
-            StatusMessage = "Bu araç yönetici yetkisi gerektirir.";
-        }
-
-        if (_launchService.LaunchSystemTool(tool, out var message))
-        {
-            StatusMessage = message;
-            return;
-        }
-
+        _launchService.LaunchSystemTool(tool, out var message);
         StatusMessage = message;
-    }
-
-    private void RegisterHiddenTap()
-    {
-        if (DateTime.UtcNow - _lastCornerTap > TimeSpan.FromSeconds(4))
-        {
-            _cornerTapCounter = 0;
-        }
-
-        _cornerTapCounter++;
-        _lastCornerTap = DateTime.UtcNow;
-
-        if (_cornerTapCounter >= 5)
-        {
-            _cornerTapCounter = 0;
-            TryOpenAdminMode();
-        }
     }
 
     private void TryOpenAdminMode()
@@ -191,9 +186,9 @@ public class MainViewModel : ObservableObject
             return;
         }
 
-        if (!_adminAuthService.VerifyPin(pinDialog.Pin, _config.AdminPinHash))
+        if (!_adminAuthService.VerifyPin(pinDialog.Pin, _config.AdminPinHash, _config.AdminPin))
         {
-            StatusMessage = "PIN doğrulanamadı.";
+            StatusMessage = TextResources.T("PinFailed");
             return;
         }
 
@@ -207,13 +202,13 @@ public class MainViewModel : ObservableObject
 
             if (!_adminAuthService.VerifyWindowsAdminCredentials(credsDialog.Username, credsDialog.Password, out var error))
             {
-                StatusMessage = $"Windows admin doğrulaması başarısız: {error}";
+                StatusMessage = $"{TextResources.T("AuthFailed")}: {error}";
                 return;
             }
         }
 
         ShowAdminMode = true;
-        StatusMessage = "Admin mode aktif.";
+        StatusMessage = TextResources.T("AdminEnabled");
     }
 
     private void CloseAdminMode()
@@ -222,21 +217,37 @@ public class MainViewModel : ObservableObject
         LoadConfig();
     }
 
-    private static string ResolveNetworkStatus()
+    private void UpdateHeaderFields()
     {
-        try
-        {
-            var isUp = NetworkInterface
-                .GetAllNetworkInterfaces()
-                .Any(nic => nic.OperationalStatus == OperationalStatus.Up &&
-                            nic.NetworkInterfaceType != NetworkInterfaceType.Loopback &&
-                            nic.NetworkInterfaceType != NetworkInterfaceType.Tunnel);
+        var ip = ResolveDeviceIpV4();
+        DeviceAndIp = _config.ShowDeviceIp
+            ? $"{Environment.MachineName} | {ip}"
+            : Environment.MachineName;
 
-            return isUp ? "LAN: Bağlı" : "LAN: Bağlı değil";
-        }
-        catch
+        NetworkStatus = _config.ShowNetworkStatus
+            ? (ip == "-" ? TextResources.T("NetworkDisconnected") : TextResources.T("NetworkConnected"))
+            : string.Empty;
+    }
+
+    private static string ResolveDeviceIpV4()
+    {
+        var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == OperationalStatus.Up)
+            .Where(n => n.NetworkInterfaceType != NetworkInterfaceType.Loopback && n.NetworkInterfaceType != NetworkInterfaceType.Tunnel)
+            .Where(n => !n.Description.Contains("virtual", StringComparison.OrdinalIgnoreCase));
+
+        foreach (var ni in interfaces)
         {
-            return "LAN: N/A";
+            var candidate = ni.GetIPProperties().UnicastAddresses
+                .Select(u => u.Address)
+                .FirstOrDefault(ip => ip.AddressFamily == AddressFamily.InterNetwork && !ip.ToString().StartsWith("169.254."));
+
+            if (candidate is not null)
+            {
+                return candidate.ToString();
+            }
         }
+
+        return "-";
     }
 }

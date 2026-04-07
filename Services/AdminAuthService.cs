@@ -21,7 +21,16 @@ public partial class AdminAuthService
         int dwLogonProvider,
         out SafeAccessTokenHandle phToken);
 
-    public bool VerifyPin(string enteredPin, string expectedHash) => SecurityHelper.VerifyPin(enteredPin, expectedHash);
+    // NOTE: Hash öncelikli; geçiş süreci için plain pin fallback desteklenir.
+    public bool VerifyPin(string enteredPin, string expectedHash, string? expectedPlainPin = null)
+    {
+        if (!string.IsNullOrWhiteSpace(expectedHash) && SecurityHelper.VerifyPin(enteredPin, expectedHash))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(expectedPlainPin) && enteredPin == expectedPlainPin;
+    }
 
     public bool IsCurrentUserAdministrator()
     {
