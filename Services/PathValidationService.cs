@@ -25,7 +25,7 @@ public static class PathValidationService
 
     public static bool IsValidPath(string? pathOrCommand, string type)
     {
-        if (string.IsNullOrWhiteSpace(pathOrCommand))
+        if (string.IsNullOrWhiteSpace(pathOrCommand) || string.IsNullOrWhiteSpace(type))
         {
             return false;
         }
@@ -48,12 +48,47 @@ public static class PathValidationService
             return false;
         }
 
-        if (normalizedType == "folder")
+        if (!TryNormalizePath(value, out var fullPath))
         {
-            return Path.IsPathRooted(value) && Directory.Exists(value);
+            return false;
         }
 
-        return Path.IsPathRooted(value);
+        if (normalizedType == "folder")
+        {
+            return Directory.Exists(fullPath);
+        }
+
+        if (normalizedType == "exe")
+        {
+            return fullPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath);
+        }
+
+        if (normalizedType == "lnk")
+        {
+            return fullPath.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && File.Exists(fullPath);
+        }
+
+        return false;
+    }
+
+    private static bool TryNormalizePath(string value, out string fullPath)
+    {
+        fullPath = string.Empty;
+
+        try
+        {
+            if (!Path.IsPathRooted(value))
+            {
+                return false;
+            }
+
+            fullPath = Path.GetFullPath(value);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool ContainsTraversal(string value) =>

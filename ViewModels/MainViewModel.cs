@@ -19,11 +19,11 @@ public class MainViewModel : ObservableObject
     private readonly AdminAuthService _adminAuthService;
     private AppConfig _config = new();
     private string _statusMessage = TextResources.T("Ready");
-    private string _deviceName = Environment.MachineName;
     private string _deviceAndIp = Environment.MachineName;
-    private string _networkStatus = TextResources.T("NetworkUnknown");
     private bool _showAdminMode;
     private DateTime _adminHoldStart = DateTime.MinValue;
+    private bool _showPinOverlay;
+    private string _pinErrorMessage = string.Empty;
 
     public MainViewModel(IConfigService configService, ILogService logService, ProcessLaunchService launchService, AdminAuthService adminAuthService)
     {
@@ -35,13 +35,13 @@ public class MainViewModel : ObservableObject
         LaunchAppCommand = new RelayCommand<KioskAppItem>(LaunchApp);
         LaunchSystemToolCommand = new RelayCommand<SystemToolItem>(LaunchSystemTool);
         RefreshCommand = new RelayCommand(LoadConfig);
-        HiddenCornerTapCommand = new RelayCommand(TryOpenAdminMode);
-        ShowAdminLoginCommand = new RelayCommand(TryOpenAdminMode);
+        HiddenCornerTapCommand = new RelayCommand(RequestAdminPin);
+        ShowAdminLoginCommand = new RelayCommand(RequestAdminPin);
         RestartCommand = new RelayCommand(() => ExitRequested?.Invoke(this, KioskExitCodes.ManualRestartRequested));
         LogoutCommand = new RelayCommand(() => Process.Start("shutdown", "/l"));
         RebootCommand = new RelayCommand(() => Process.Start("shutdown", "/r /t 0"));
 
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         timer.Tick += (_, _) => UpdateHeaderFields();
         timer.Start();
 
@@ -69,28 +69,28 @@ public class MainViewModel : ObservableObject
         set => SetProperty(ref _statusMessage, value);
     }
 
-    public string DeviceName
-    {
-        get => _deviceName;
-        set => SetProperty(ref _deviceName, value);
-    }
-
     public string DeviceAndIp
     {
         get => _deviceAndIp;
         set => SetProperty(ref _deviceAndIp, value);
     }
 
-    public string NetworkStatus
-    {
-        get => _networkStatus;
-        set => SetProperty(ref _networkStatus, value);
-    }
-
     public bool ShowAdminMode
     {
         get => _showAdminMode;
         set => SetProperty(ref _showAdminMode, value);
+    }
+
+    public bool ShowPinOverlay
+    {
+        get => _showPinOverlay;
+        set => SetProperty(ref _showPinOverlay, value);
+    }
+
+    public string PinErrorMessage
+    {
+        get => _pinErrorMessage;
+        set => SetProperty(ref _pinErrorMessage, value);
     }
 
     public string RefreshButtonText => TextResources.T("Refresh");
@@ -101,7 +101,7 @@ public class MainViewModel : ObservableObject
     {
         if (key == Key.F12 && modifiers.HasFlag(ModifierKeys.Control) && modifiers.HasFlag(ModifierKeys.Shift))
         {
-            TryOpenAdminMode();
+            RequestAdminPin();
         }
     }
 
@@ -119,8 +119,50 @@ public class MainViewModel : ObservableObject
 
         if (heldFor >= TimeSpan.FromSeconds(5))
         {
-            TryOpenAdminMode();
+            RequestAdminPin();
         }
+    }
+
+    public void RequestAdminPin()
+    {
+        PinErrorMessage = string.Empty;
+        ShowPinOverlay = true;
+    }
+
+    public void CancelAdminPin()
+    {
+        ShowPinOverlay = false;
+        PinErrorMessage = string.Empty;
+    }
+
+    public void SubmitAdminPin(string pin)
+    {
+        if (!_adminAuthService.VerifyPin(pin, _config.AdminPinHash, _config.AdminPin))
+        {
+            PinErrorMessage = TextResources.T("PinFailed");
+            StatusMessage = TextResources.T("PinFailed");
+            return;
+        }
+
+        if (_config.RequireWindowsAdminAuthInAdminMode)
+        {
+            var credsDialog = new Views.WindowsAuthDialog();
+            if (credsDialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            if (!_adminAuthService.VerifyWindowsAdminCredentials(credsDialog.Username, credsDialog.Password, out var error))
+            {
+                StatusMessage = $"{TextResources.T("AuthFailed")}: {error}";
+                return;
+            }
+        }
+
+        ShowPinOverlay = false;
+        PinErrorMessage = string.Empty;
+        ShowAdminMode = true;
+        StatusMessage = TextResources.T("AdminEnabled");
     }
 
     private void LoadConfig()
@@ -178,39 +220,6 @@ public class MainViewModel : ObservableObject
         StatusMessage = message;
     }
 
-    private void TryOpenAdminMode()
-    {
-        var pinDialog = new Views.PinDialog();
-        if (pinDialog.ShowDialog() != true)
-        {
-            return;
-        }
-
-        if (!_adminAuthService.VerifyPin(pinDialog.Pin, _config.AdminPinHash, _config.AdminPin))
-        {
-            StatusMessage = TextResources.T("PinFailed");
-            return;
-        }
-
-        if (_config.RequireWindowsAdminAuthInAdminMode)
-        {
-            var credsDialog = new Views.WindowsAuthDialog();
-            if (credsDialog.ShowDialog() != true)
-            {
-                return;
-            }
-
-            if (!_adminAuthService.VerifyWindowsAdminCredentials(credsDialog.Username, credsDialog.Password, out var error))
-            {
-                StatusMessage = $"{TextResources.T("AuthFailed")}: {error}";
-                return;
-            }
-        }
-
-        ShowAdminMode = true;
-        StatusMessage = TextResources.T("AdminEnabled");
-    }
-
     private void CloseAdminMode()
     {
         ShowAdminMode = false;
@@ -220,16 +229,13 @@ public class MainViewModel : ObservableObject
     private void UpdateHeaderFields()
     {
         var ip = ResolveDeviceIpV4();
+        var ipText = ip ?? TextResources.T("IpUnavailable");
         DeviceAndIp = _config.ShowDeviceIp
-            ? $"{Environment.MachineName} | {ip}"
+            ? $"{Environment.MachineName} | {ipText}"
             : Environment.MachineName;
-
-        NetworkStatus = _config.ShowNetworkStatus
-            ? (ip == "-" ? TextResources.T("NetworkDisconnected") : TextResources.T("NetworkConnected"))
-            : string.Empty;
     }
 
-    private static string ResolveDeviceIpV4()
+    private static string? ResolveDeviceIpV4()
     {
         var interfaces = NetworkInterface.GetAllNetworkInterfaces()
             .Where(n => n.OperationalStatus == OperationalStatus.Up)
@@ -248,6 +254,6 @@ public class MainViewModel : ObservableObject
             }
         }
 
-        return "-";
+        return null;
     }
 }

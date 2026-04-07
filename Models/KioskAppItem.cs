@@ -11,5 +11,5 @@ public class KioskAppItem
     public string WorkingDirectory { get; set; } = string.Empty;
     public bool Visible { get; set; } = true;
     public bool RequiresAdmin { get; set; }
-    public string Category { get; set; } = "General";
+    public string Category { get; set; } = "Genel";
 }

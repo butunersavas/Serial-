@@ -29,32 +29,43 @@
             </DataGrid.Columns>
         </DataGrid>
 
-        <GroupBox Grid.Row="2" Header="Whitelisted Windows Araçları" Foreground="White" Margin="0,0,0,10">
-            <ItemsControl ItemsSource="{Binding SystemTools}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <WrapPanel />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Button Content="{Binding Title}" Command="{Binding DataContext.LaunchToolCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+        <GroupBox Grid.Row="2" Header="Whitelist Sistem Araçları" Foreground="White" Margin="0,0,0,10">
+            <StackPanel>
+                <WrapPanel Margin="0,0,0,8">
+                    <ComboBox Width="340"
+                              ItemsSource="{Binding AvailableSystemTools}"
+                              DisplayMemberPath="Title"
+                              SelectedItem="{Binding SelectedToolTemplate}" />
+                    <Button Content="Sistem Aracı Ekle" Command="{Binding AddSystemToolCommand}" />
+                </WrapPanel>
+                <ItemsControl ItemsSource="{Binding SystemTools}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding Title}" Command="{Binding DataContext.LaunchToolCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}" CommandParameter="{Binding}"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
         </GroupBox>
 
         <StackPanel Grid.Row="3" Orientation="Vertical">
             <WrapPanel>
-                <Button Content="Uygulama Ekle" Command="{Binding AddAppCommand}"/>
-                <Button Content="Uygulama Sil" Command="{Binding RemoveAppCommand}"/>
+                <Button Content="EXE Ekle" Command="{Binding AddExeCommand}"/>
+                <Button Content="LNK Ekle" Command="{Binding AddLnkCommand}"/>
+                <Button Content="Klasör Ekle" Command="{Binding AddFolderCommand}"/>
+                <Button Content="Öğe Sil" Command="{Binding RemoveAppCommand}"/>
                 <Button Content="Yukarı" Command="{Binding MoveUpCommand}"/>
                 <Button Content="Aşağı" Command="{Binding MoveDownCommand}"/>
                 <Button Content="İkon Seç" Command="{Binding EditIconCommand}"/>
                 <Button Content="Kategori Ekle" Command="{Binding AddCategoryCommand}"/>
-                <Button Content="Config Doğrula" Command="{Binding ValidateConfigCommand}"/>
-                <Button Content="Config Kaydet" Command="{Binding SaveCommand}"/>
-                <Button Content="Kiosk Yenile" Command="{Binding RefreshScreenCommand}"/>
+                <Button Content="Yapılandırmayı Doğrula" Command="{Binding ValidateConfigCommand}"/>
+                <Button Content="Yapılandırmayı Kaydet" Command="{Binding SaveCommand}"/>
+                <Button Content="Ekranı Yenile" Command="{Binding RefreshScreenCommand}"/>
                 <Button Content="Yeniden Yükle" Command="{Binding ReloadCommand}"/>
                 <Button Content="Oturumu Kapat" Command="{Binding LogoutCommand}"/>
                 <Button Content="Yeniden Başlat" Command="{Binding RebootCommand}"/>

@@ -22,8 +22,7 @@
         <Border Grid.Row="0" Background="{StaticResource PanelBrush}" Padding="18,8">
             <DockPanel LastChildFill="False">
                 <TextBlock Text="{Binding DeviceAndIp}" FontSize="19" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                <TextBlock Text="{Binding NetworkStatus}" FontSize="15" Margin="20,0,0,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                <Border DockPanel.Dock="Right" Width="28" Height="28" Background="#1E2633" CornerRadius="4"
+                <Border DockPanel.Dock="Right" Width="24" Height="24" Background="Transparent" CornerRadius="4"
                         ToolTip="{Binding AdminEntryTooltip}"
                         MouseLeftButtonDown="AdminTrigger_OnMouseDown"
                         MouseLeftButtonUp="AdminTrigger_OnMouseUp"/>
@@ -99,6 +98,30 @@
                     <Button Content="{Binding RefreshButtonText}" Command="{Binding RefreshCommand}" FontSize="14" Padding="12,4"/>
                 </StackPanel>
             </DockPanel>
+        </Border>
+
+        <Border Background="#CC000000" Grid.RowSpan="3">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding ShowPinOverlay}" Value="True">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Border Width="420" Padding="16" Background="{StaticResource PanelBrush}" CornerRadius="12" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel>
+                    <TextBlock Text="Yönetici PIN girin" FontSize="20" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <PasswordBox x:Name="AdminPinBox" FontSize="22" MaxLength="12" KeyDown="AdminPinBox_OnKeyDown"/>
+                    <TextBlock Text="{Binding PinErrorMessage}" Foreground="#FF8080" Margin="0,8,0,0"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+                        <Button Content="İptal" Width="96" Margin="0,0,8,0" Click="AdminPinCancel_OnClick"/>
+                        <Button Content="Giriş" Width="96" Click="AdminPinSubmit_OnClick"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Border>
     </Grid>
 </Window>
