@@ -1,3 +1,6 @@
+using System;
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Text.Json;
 using RadcKioskLauncher.Models;
 
@@ -11,7 +14,7 @@ public class ConfigService(ILogService logService) : IConfigService
         WriteIndented = true
     };
 
-    public string ConfigPath => @"C:\ProgramData\RadcKiosk\config.json";
+    public string ConfigPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RadcKiosk", "config.json");
 
     public AppConfig Load()
     {

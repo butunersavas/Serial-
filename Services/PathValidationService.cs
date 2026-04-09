@@ -1,3 +1,4 @@
+using System.IO;
 namespace RadcKioskLauncher.Services;
 
 public static class PathValidationService

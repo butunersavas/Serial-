@@ -6,14 +6,14 @@ using RadcKioskLauncher.Helpers;
 
 namespace RadcKioskLauncher.Services;
 
-public partial class AdminAuthService
+public class AdminAuthService
 {
     private const int Logon32LogonInteractive = 2;
     private const int Logon32ProviderDefault = 0;
 
-    [LibraryImport("advapi32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool LogonUser(
+    private static extern bool LogonUser(
         string lpszUsername,
         string? lpszDomain,
         string lpszPassword,

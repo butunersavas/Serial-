@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Text;
 
 namespace RadcKioskLauncher.Services;
@@ -11,7 +13,7 @@ public class LogService : ILogService
 
     public LogService()
     {
-        LogDirectory = @"C:\ProgramData\RadcKiosk\logs";
+        LogDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RadcKiosk", "logs");
         Directory.CreateDirectory(LogDirectory);
         _logFilePath = Path.Combine(LogDirectory, $"launcher-{DateTime.UtcNow:yyyyMMdd}.log");
     }
