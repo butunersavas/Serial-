@@ -1,8 +1,8 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
-using System.Windows.Interop;
 using RadcKioskLauncher.Helpers;
 using RadcKioskLauncher.Services;
 using RadcKioskLauncher.ViewModels;
@@ -11,28 +11,21 @@ namespace RadcKioskLauncher;
 
 public partial class MainWindow : Window
 {
-    private readonly MainViewModel _vm;
+    private readonly MainViewModel? _vm;
 
     private const int SwShow = 5;
-    private const int GwlExStyle = -20;
-    private const int WsExToolWindow = 0x00000080;
 
-    [LibraryImport("user32.dll")]
-    private static partial bool SetForegroundWindow(nint hWnd);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(nint hWnd);
 
-    [LibraryImport("user32.dll")]
-    private static partial bool ShowWindow(nint hWnd, int nCmdShow);
-
-    [LibraryImport("user32.dll", EntryPoint = "GetWindowLong")]
-    private static partial int GetWindowLong32(nint hWnd, int nIndex);
-
-    [LibraryImport("user32.dll", EntryPoint = "SetWindowLong")]
-    private static partial int SetWindowLong32(nint hWnd, int nIndex, int dwNewLong);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(nint hWnd, int nCmdShow);
 
     public MainWindow()
     {
         InitializeComponent();
-        SourceInitialized += (_, _) => HideFromAltTab();
 
         var logService = App.LogService;
         var configService = new ConfigService(logService);
@@ -62,7 +55,86 @@ public partial class MainWindow : Window
     }
 
     private void AdminTrigger_OnMouseDown(object sender, MouseButtonEventArgs e) => _vm?.StartAdminPressHold();
+
     private void AdminTrigger_OnMouseUp(object sender, MouseButtonEventArgs e) => _vm?.EndAdminPressHold();
+
+    private void AdminPinBox_OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            AdminPinSubmit_OnClick(sender, e);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape)
+        {
+            AdminPinCancel_OnClick(sender, e);
+            e.Handled = true;
+        }
+    }
+
+    private void AdminPinCancel_OnClick(object sender, RoutedEventArgs e)
+    {
+        AdminPinBox.Password = string.Empty;
+
+        if (!TryInvokeViewModelMember(
+                new[] { "CancelAdminPin", "CloseAdminPin", "HideAdminPinDialog", "HideAdminDialog" }))
+        {
+            _vm?.CancelAdminPin();
+        }
+    }
+
+    private void AdminPinSubmit_OnClick(object sender, RoutedEventArgs e)
+    {
+        var enteredPin = AdminPinBox.Password;
+
+        if (!TryInvokeViewModelMember(
+                new[] { "SubmitAdminPin", "ConfirmAdminPin", "VerifyAdminPin", "OpenAdminPanel" },
+                enteredPin))
+        {
+            _vm?.SubmitAdminPin(enteredPin);
+        }
+
+        if (_vm is { ShowPinOverlay: false })
+        {
+            AdminPinBox.Password = string.Empty;
+        }
+    }
+
+    private bool TryInvokeViewModelMember(string[] orderedNames, params object?[]? args)
+    {
+        if (_vm is null)
+        {
+            return false;
+        }
+
+        var vmType = _vm.GetType();
+        var invocationArgs = args ?? [];
+
+        foreach (var name in orderedNames)
+        {
+            var method = vmType.GetMethod(name, BindingFlags.Instance | BindingFlags.Public);
+            if (method is not null)
+            {
+                var parameters = method.GetParameters();
+                if (parameters.Length == invocationArgs.Length)
+                {
+                    method.Invoke(_vm, invocationArgs);
+                    return true;
+                }
+            }
+
+            var prop = vmType.GetProperty(name, BindingFlags.Instance | BindingFlags.Public);
+            if (prop?.GetValue(_vm) is ICommand cmd && cmd.CanExecute(null))
+            {
+                cmd.Execute(null);
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private async void HandleExternalLaunch(Process process)
     {
@@ -79,7 +151,6 @@ public partial class MainWindow : Window
             WindowState = WindowState.Maximized;
             Activate();
             Topmost = true;
-            HideFromAltTab();
         });
     }
 
@@ -108,38 +179,8 @@ public partial class MainWindow : Window
         }
     }
 
-    private void HideFromAltTab()
+    private static void HideFromAltTab()
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
-        if (hwnd == nint.Zero)
-        {
-            return;
-        }
-
-        var extendedStyle = GetWindowLong32(hwnd, GwlExStyle);
-        SetWindowLong32(hwnd, GwlExStyle, extendedStyle | WsExToolWindow);
-    }
-
-    private void AdminPinCancel_OnClick(object sender, RoutedEventArgs e)
-    {
-        AdminPinBox.Password = string.Empty;
-        _vm?.CancelAdminPin();
-    }
-
-    private void AdminPinSubmit_OnClick(object sender, RoutedEventArgs e)
-    {
-        _vm?.SubmitAdminPin(AdminPinBox.Password);
-        if (_vm is { ShowPinOverlay: false })
-        {
-            AdminPinBox.Password = string.Empty;
-        }
-    }
-
-    private void AdminPinBox_OnKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key == Key.Enter)
-        {
-            AdminPinSubmit_OnClick(sender, e);
-        }
+        // Geçici olarak devre dışı.
     }
 }

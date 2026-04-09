@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using RadcKioskLauncher.Models;
+using System.IO;
 
 namespace RadcKioskLauncher.Services;
 
