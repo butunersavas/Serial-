@@ -38,7 +38,7 @@ def ensure_schema() -> None:
 
 ensure_schema()
 
-app = FastAPI(title="Kurumsal Güvenlik Bulgu Takip API")
+app = FastAPI(title="Siber Risk ve Bulgu Yönetimi API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
@@ -440,7 +440,7 @@ def export_excel(db: Session = Depends(get_db), current_actor: str = Depends(act
 @api.get("/dashboard/summary")
 def dashboard(db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> dict[str, Any]:
     data = dashboard_data(db)
-    add_system_log(db, "dashboard_view", "Dashboard görüntülendi", "", current_actor)
+    add_system_log(db, "dashboard_view", "Gösterge paneli görüntülendi", "", current_actor)
     db.commit()
     return data
 

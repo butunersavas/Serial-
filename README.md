@@ -1,6 +1,6 @@
-# Kurumsal Güvenlik Bulgu Takip
+# Siber Risk ve Bulgu Yönetimi
 
-Excel üzerinden gelen güvenlik testi bulgularını web arayüzüne aktarmak, açık/kapatıldı durumlarını yönetmek, durum seviyesine göre özet dashboard üretmek ve temiz Excel raporu dışa aktarmak için hazırlanmış örnek web uygulamasıdır.
+Excel üzerinden gelen güvenlik testi bulgularını web arayüzüne aktarmak, açık/kapatıldı durumlarını yönetmek, durum seviyesine göre gösterge paneli üretmek ve temiz Excel raporu dışa aktarmak için hazırlanmış örnek web uygulamasıdır.
 
 ## Teknoloji Yığını
 
@@ -18,7 +18,7 @@ Excel üzerinden gelen güvenlik testi bulgularını web arayüzüne aktarmak, a
 - Kolon başlıkları Türkçe karakterlerden ve farklı yazım biçimlerinden bağımsız otomatik eşleştirilir.
 - `İlgili` kolonu varsa `İlgili Birim / Kurum` alanına aktarılır.
 - `İlgili Kişi` ayrı alan olarak tutulur.
-- Aynı `Kayıt No` yeniden import edilirse mevcut kayıt güncellenir, mükerrer kayıt oluşturulmaz.
+- Aynı `Kayıt No` yeniden içe aktarılırsa mevcut kayıt güncellenir, mükerrer kayıt oluşturulmaz.
 
 ### Bulgular Ekranı
 
@@ -33,7 +33,7 @@ Bulgular ekranında aşağıdaki kolonlar gösterilir ve düzenlenebilir alanlar
 - İlgili Birim / Kurum
 - İlgili Kişi
 - Durum
-- Termin Tarih
+- Termin Tarihi
 - Yeni Termin
 - Not
 - Son Güncelleme
@@ -48,15 +48,14 @@ Bulgular ekranında aşağıdaki kolonlar gösterilir ve düzenlenebilir alanlar
 - Orta
 - Düşük
 
-### Özet / Dashboard
+### Özet / Gösterge Paneli
 
-Dashboard üzerinde şu kartlar bulunur:
+Gösterge panelinde şu kartlar bulunur:
 
 - Toplam Bulgu
 - Kapatılan
 - Açık Kalan
 - Kapanma Oranı
-- Son Çalışma Saati
 
 Ayrıca `Durum Seviyesi | Toplam | Kapatılan | Açık Kalan` özet tablosu `Acil`, `Kritik`, `Yüksek`, `Orta`, `Düşük` ve `Toplam` satırlarıyla gösterilir.
 
@@ -78,16 +77,15 @@ Bulgular ekranında aşağıdaki filtreler vardır:
 - Excel içinde `Ozet` ve `Bulgular` sayfaları oluşturulur.
 - OpenPyXL ile geçerli Office Open XML dosyası üretildiği için Excel açılışında onarım/uyarı beklenmez.
 - `Kapatıldı` durumundaki satırlarda A ve C:K arası açık yeşil renkte boyanır.
-- `Durum` kolonunda Excel dropdown doğrulaması bulunur: `Devam Ediyor`, `Kapatıldı`.
+- `Durum` kolonunda Excel açılır liste doğrulaması bulunur: `Devam Ediyor`, `Kapatıldı`.
 
 ### Log
 
 Aşağıdaki işlemler `audit_logs` tablosunda saklanır:
 
-- Kim ne zaman import yaptı
+- Kim ne zaman içe aktarma yaptı
 - Kim hangi bulguyu kapattı
-- Son çalışma saati
-- Son export zamanı
+- Son dışa aktarma zamanı
 - Kayıt oluşturma ve güncelleme işlemleri
 
 ## Kurulum ve Çalıştırma
@@ -129,7 +127,7 @@ docker compose down -v
 3. Üst menüdeki **Excel İçe Aktar** butonu ile güvenlik bulgularını yükleyin.
 4. **Bulgular** sekmesinde kayıtları filtreleyin, düzenleyin ve durumlarını yönetin.
 5. Kapatılan kayıtlar açık yeşil renkte görüntülenir.
-6. **Özet / Dashboard** sekmesinde toplam/kapatılan/açık kalan metriklerini izleyin.
+6. **Özet / Gösterge Paneli** sekmesinde toplam/kapatılan/açık kalan metriklerini izleyin.
 7. **Excel Dışa Aktar** butonu ile `Ozet` ve `Bulgular` sayfalarını içeren raporu indirin.
 
 ## API Özet
@@ -139,13 +137,13 @@ docker compose down -v
 - `GET /findings`: Bulguları filtreli listeleme
 - `POST /findings`: Manuel bulgu oluşturma
 - `PATCH /findings/{finding_id}`: Bulgu güncelleme / kapatma
-- `POST /import`: Excel import
-- `GET /export`: Excel export
+- `POST /import`: Excel içe aktarma
+- `GET /export`: Excel dışa aktarma
 - `GET /logs`: İşlem logları
 
 ## Excel Kolon Eşleştirme Notları
 
-Import sırasında başlıklar normalize edilir. Örneğin aşağıdaki alternatifler desteklenir:
+İçe aktarma sırasında başlıklar normalize edilir. Örneğin aşağıdaki alternatifler desteklenir:
 
 - `Kayıt No`, `Kayit No`, `Kayıt Numarası`, `ID`
 - `Bulgu Başlığı`, `Başlık`, `Bulgu`
