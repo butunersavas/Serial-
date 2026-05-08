@@ -31,6 +31,10 @@ FINDING_COLUMNS = [
     ("new_due_date", "Yeni Termin"),
     ("note", "Not"),
     ("updated_at", "Son Güncelleme"),
+    ("sla_status", "SLA Durumu"),
+    ("active_due_date", "Aktif Termin"),
+    ("delay_days", "Gecikme Günü"),
+    ("last_action_note", "Son Aksiyon"),
 ]
 
 HEADER_ALIASES = {
@@ -138,7 +142,7 @@ def read_excel(contents: bytes, filename: str = "Excel") -> tuple[list[dict[str,
     return payloads, errors
 
 
-def import_findings(db: Session, contents: bytes, filename: str) -> dict[str, Any]:
+def import_findings(db: Session, contents: bytes, filename: str, current_actor: str = "system", action_callback: Any | None = None) -> dict[str, Any]:
     payloads, errors = read_excel(contents, filename)
     created = 0
     updated = 0
@@ -147,11 +151,17 @@ def import_findings(db: Session, contents: bytes, filename: str) -> dict[str, An
         if finding:
             for key, value in payload.items():
                 setattr(finding, key, value)
+            if action_callback:
+                action_callback(db, finding, "imported_update", current_actor, note=f"Excel import güncellemesi: {filename}")
             updated += 1
         else:
-            db.add(Finding(**payload))
+            finding = Finding(**payload)
+            db.add(finding)
+            db.flush()
+            if action_callback:
+                action_callback(db, finding, "imported", current_actor, note=f"Excel import kaydı: {filename}")
             created += 1
-    db.commit()
+    db.flush()
     return {"message": "İçe aktarma tamamlandı", "created": created, "updated": updated, "failed": len(errors), "errors": errors}
 
 
@@ -164,6 +174,12 @@ def excel_value(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     return value or ""
+
+
+def finding_value(finding: Finding, field: str) -> Any:
+    if field == "active_due_date":
+        return finding.new_due_date or finding.due_date
+    return getattr(finding, field, "")
 
 
 def build_export(findings: list[Finding], summary: dict[str, Any]) -> bytes:
@@ -202,10 +218,10 @@ def build_export(findings: list[Finding], summary: dict[str, Any]) -> bytes:
         is_closed = finding.status == STATUS_CLOSED
         for col, (field, _) in enumerate(FINDING_COLUMNS):
             fmt = green_fmt if is_closed and (col == 0 or 2 <= col <= 10) else None
-            findings_sheet.write(row_idx, col, excel_value(getattr(finding, field)), fmt)
+            findings_sheet.write(row_idx, col, excel_value(finding_value(finding, field)), fmt)
     last_row = max(len(findings) + 1, 2)
     findings_sheet.data_validation(1, 8, last_row, 8, {"validate": "list", "source": [STATUS_OPEN, STATUS_CLOSED]})
-    for idx, width in enumerate([16, 34, 16, 28, 42, 32, 28, 22, 16, 16, 16, 28, 22]):
+    for idx, width in enumerate([16, 34, 16, 28, 42, 32, 28, 22, 16, 16, 16, 28, 22, 16, 16, 14, 24]):
         findings_sheet.set_column(idx, idx, width)
     findings_sheet.freeze_panes(1, 0)
     workbook.close()
@@ -237,7 +253,7 @@ def build_export_openpyxl(findings: list[Finding], summary: dict[str, Any]) -> b
         cell.fill = header_fill
         cell.font = header_font
     for finding in findings:
-        findings_sheet.append([excel_value(getattr(finding, field)) for field, _ in FINDING_COLUMNS])
+        findings_sheet.append([excel_value(finding_value(finding, field)) for field, _ in FINDING_COLUMNS])
         if finding.status == STATUS_CLOSED:
             for col_idx in [1, *range(3, 12)]:
                 findings_sheet.cell(row=findings_sheet.max_row, column=col_idx).fill = green_fill

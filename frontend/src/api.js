@@ -1,9 +1,9 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-const USER = 'web-kullanici';
+const USER = 'admin';
 
 function friendlyError(error) {
-  if (error instanceof TypeError) {
-    return 'Backend servisine ulaşılamıyor. Lütfen http://localhost:8000/api/health adresini kontrol edin.';
+  if (error instanceof TypeError || /Failed to fetch/i.test(error.message || '')) {
+    return 'API servisine ulaşılamıyor. Lütfen backend servisinin çalıştığını kontrol edin.';
   }
   return error.message || 'İstek başarısız oldu';
 }
@@ -20,7 +20,8 @@ async function request(path, options = {}) {
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'İstek başarısız oldu');
+      const detail = Array.isArray(error.detail) ? error.detail.map((x) => x.msg).join(', ') : error.detail;
+      throw new Error(detail || 'İstek başarısız oldu');
     }
     if (options.raw) return response;
     return response.json();
@@ -29,13 +30,14 @@ async function request(path, options = {}) {
   }
 }
 
-export function getDashboard() {
-  return request('/dashboard/summary');
-}
-
-export function getLogs() {
-  return request('/logs');
-}
+export const getDashboard = () => request('/dashboard/summary');
+export const getLogs = () => request('/logs');
+export const getActions = (id) => request(`/findings/${id}/actions`);
+export const addAction = (id, payload) => request(`/findings/${id}/actions`, { method: 'POST', body: JSON.stringify(payload) });
+export const closeFindingApi = (id, note = '') => request(`/findings/${id}/close`, { method: 'POST', body: JSON.stringify({ note }) });
+export const reopenFindingApi = (id, note = '') => request(`/findings/${id}/reopen`, { method: 'POST', body: JSON.stringify({ note }) });
+export const bulkUpdate = (payload) => request('/findings/bulk-update', { method: 'POST', body: JSON.stringify(payload) });
+export const bulkClose = (ids, note = 'Toplu kapatma') => request('/findings/bulk-close', { method: 'POST', body: JSON.stringify({ ids, note }) });
 
 export function getFindings(filters = {}) {
   const params = new URLSearchParams();
@@ -45,17 +47,9 @@ export function getFindings(filters = {}) {
   return request(`/findings?${params.toString()}`);
 }
 
-export function createFinding(payload) {
-  return request('/findings', { method: 'POST', body: JSON.stringify(payload) });
-}
-
-export function updateFinding(id, payload) {
-  return request(`/findings/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-}
-
-export function deleteFinding(id) {
-  return request(`/findings/${id}`, { method: 'DELETE' });
-}
+export const createFinding = (payload) => request('/findings', { method: 'POST', body: JSON.stringify(payload) });
+export const updateFinding = (id, payload) => request(`/findings/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+export const deleteFinding = (id) => request(`/findings/${id}`, { method: 'DELETE' });
 
 export function previewExcel(file) {
   const formData = new FormData();
@@ -69,6 +63,7 @@ export function importExcel(file) {
   return request('/import/excel', { method: 'POST', body: formData });
 }
 
-export function exportUrl() {
-  return `${API_BASE_URL}/export/excel`;
+export function exportUrl(ids = []) {
+  const qs = ids.length ? `?ids=${ids.join(',')}` : '';
+  return `${API_BASE_URL}/export/excel${qs}`;
 }
