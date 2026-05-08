@@ -8,8 +8,9 @@ import {
   Card,
   CardContent,
   Checkbox,
-  Chip,
   Container,
+  Divider,
+  Drawer,
   FormControl,
   FormControlLabel,
   Grid,
@@ -18,14 +19,15 @@ import {
   Paper,
   Select,
   Snackbar,
-  Tab,
+  List,
+  ListItemButton,
+  ListItemText,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Tabs,
   TextField,
   Toolbar,
   Typography,
@@ -35,12 +37,31 @@ import UploadFileIcon from '@mui/icons-material/UploadFile';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { exportUrl, getDashboard, getFindings, getLogs, importExcel, updateFinding } from './api';
 
+const LOGO_SRC = '/assets/surat-logo.svg';
+const DRAWER_WIDTH = 260;
+
 const severities = ['Acil', 'Kritik', 'Yüksek', 'Orta', 'Düşük'];
 const statuses = ['Devam Ediyor', 'Kapatıldı'];
 
 function formatDate(value) {
   if (!value) return '';
   return new Date(value).toLocaleString('tr-TR');
+}
+
+function BrandLogo({ height = 38 }) {
+  return (
+    <Box
+      component="img"
+      src={LOGO_SRC}
+      alt="Sürat Kargo"
+      sx={{
+        display: 'block',
+        height,
+        maxWidth: '100%',
+        objectFit: 'contain',
+      }}
+    />
+  );
 }
 
 function SummaryCard({ label, value }) {
@@ -171,16 +192,52 @@ function App() {
   };
 
   return (
-    <Box sx={{ bgcolor: '#f5f7fb', minHeight: '100vh' }}>
-      <AppBar position="sticky"><Toolbar><Typography variant="h6" sx={{ flexGrow: 1 }}>Kurumsal Güvenlik Bulgu Takip</Typography><Button color="inherit" component="label" startIcon={<UploadFileIcon />}>Excel İçe Aktar<input hidden type="file" accept=".xlsx,.xlsm" onChange={handleImport} /></Button><Button color="inherit" href={exportUrl()} startIcon={<FileDownloadIcon />}>Excel Dışa Aktar</Button></Toolbar></AppBar>
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
-          <Tab label="Özet / Dashboard" />
-          <Tab label={<Box>Bulgular <Chip size="small" label={findings.length} sx={{ ml: 1 }} /></Box>} />
-        </Tabs>
-        {tab === 0 && <Dashboard summary={summary} logs={logs} />}
-        {tab === 1 && <><FilterBar filters={filters} setFilters={setFilters} refresh={refresh} /><FindingsTable findings={findings} onChange={handleUpdate} /></>}
-      </Container>
+    <Box sx={{ bgcolor: '#f5f7fb', display: 'flex', minHeight: '100vh' }}>
+      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+        <Toolbar sx={{ gap: 2 }}>
+          <BrandLogo height={38} />
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>Kurumsal Güvenlik Bulgu Takip</Typography>
+          <Button color="inherit" component="label" startIcon={<UploadFileIcon />}>Excel İçe Aktar<input hidden type="file" accept=".xlsx,.xlsm" onChange={handleImport} /></Button>
+          <Button color="inherit" href={exportUrl()} startIcon={<FileDownloadIcon />}>Excel Dışa Aktar</Button>
+        </Toolbar>
+      </AppBar>
+
+      <Drawer
+        variant="permanent"
+        sx={{
+          width: DRAWER_WIDTH,
+          flexShrink: 0,
+          [`& .MuiDrawer-paper`]: {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            bgcolor: '#ffffff',
+          },
+        }}
+      >
+        <Toolbar sx={{ justifyContent: 'center' }}>
+          <BrandLogo height={38} />
+        </Toolbar>
+        <Divider />
+        <List sx={{ px: 1.5 }}>
+          <ListItemButton selected={tab === 0} onClick={() => setTab(0)} sx={{ borderRadius: 2, mb: 1 }}>
+            <ListItemText primary="Özet / Dashboard" />
+          </ListItemButton>
+          <ListItemButton selected={tab === 1} onClick={() => setTab(1)} sx={{ borderRadius: 2 }}>
+            <ListItemText
+              primary="Bulgular"
+              secondary={`${findings.length} kayıt`}
+            />
+          </ListItemButton>
+        </List>
+      </Drawer>
+
+      <Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Toolbar />
+        <Container maxWidth="xl" sx={{ py: 3 }}>
+          {tab === 0 && <Dashboard summary={summary} logs={logs} />}
+          {tab === 1 && <><FilterBar filters={filters} setFilters={setFilters} refresh={refresh} /><FindingsTable findings={findings} onChange={handleUpdate} /></>}
+        </Container>
+      </Box>
       <Snackbar open={Boolean(message)} autoHideDuration={5000} onClose={() => setMessage('')}><Alert severity="info" onClose={() => setMessage('')}>{message}</Alert></Snackbar>
     </Box>
   );
