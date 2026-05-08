@@ -170,3 +170,82 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Microsoft Defender Vulnerability Management Entegrasyonu
+
+Aşama 4 kapsamında uygulamaya Microsoft Defender for Endpoint / Defender Vulnerability Management API entegrasyonu eklenmiştir. Bu entegrasyon kurum cihazlarında görülen CVE kayıtlarını, cihaz-yazılım-CVE eşleşmelerini ve remediation önerilerini dashboard, ayrı Defender ekranı, raporlar ve iç bulguya dönüştürme akışı ile gösterir.
+
+### Microsoft Entra App Registration
+
+Gerçek Defender API bağlantısı için Microsoft Entra ID üzerinde bir App Registration oluşturulmalıdır:
+
+1. Microsoft Entra admin center içinde **App registrations > New registration** ekranından uygulamayı oluşturun.
+2. Oluşan uygulama sayfasından **Directory (tenant) ID** değerini `Tenant ID` alanına girin.
+3. **Application (client) ID** değerini `Client ID` alanına girin.
+4. **Certificates & secrets > Client secrets > New client secret** ile secret üretin ve `Client Secret` alanına girin.
+5. **API permissions** bölümünden Defender Vulnerability Management için gerekli application permission izinlerini ekleyin.
+6. İzinler için **Admin consent** verilmelidir; aksi halde bağlantı testi 401/403 dönebilir.
+
+### Gerekli API İzinleri
+
+Ayarlar ekranında bilgi olarak da gösterilen temel izinler:
+
+- `Vulnerability.Read.All`
+- `SecurityRecommendation.Read.All`
+
+Cihaz detay endpointleri genişletildiğinde `Machine.Read.All` izni de gerekebilir.
+
+### API Base URL
+
+Varsayılan Defender API base URL değeri:
+
+```text
+https://api.security.microsoft.com
+```
+
+Kullanılan endpointler:
+
+- `GET /api/vulnerabilities`
+- `GET /api/vulnerabilities/machinesVulnerabilities`
+- `GET /api/recommendations`
+- Opsiyonel altyapı: `GET /api/machines/{machineId}/vulnerabilities`
+
+### Uygulama Ayarları ve Test Connection
+
+Frontend içinde **Ayarlar > Microsoft Defender Entegrasyonu** bölümünde şu alanlar yönetilir:
+
+- Tenant ID
+- Client ID
+- Client Secret
+- Defender API Base URL
+- Entegrasyon Aktif / Pasif
+- Son Sync Zamanı
+- Bağlantıyı Test Et
+- Tüm Verileri Senkronize Et
+
+`Bağlantıyı Test Et` butonu OAuth2 client credentials akışı ile token almayı ve Defender API erişimini test eder. Token alınamazsa kullanıcıya Tenant ID, Client ID ve Client Secret bilgilerinin kontrol edilmesi gerektiğini belirten Türkçe hata mesajı gösterilir.
+
+### Secret Güvenliği Notu
+
+Client Secret frontend tarafında açık gösterilmez; kayıt sonrası maskeli döner. Bu sürümde backend tarafında secret için temel saklama altyapısı hazırlanmıştır. Production ortamında secret değerinin veritabanında düz metin tutulmaması, KMS/Key Vault veya uygulama seviyesinde güçlü encryption ile korunması önerilir. Ayrıca veritabanı erişimi, yedekleri ve ortam değişkenleri minimum yetki prensibine göre sınırlandırılmalıdır.
+
+### Mock / Demo Mod
+
+Defender entegrasyonu yapılandırılmamışsa veya henüz gerçek API bilgileri girilmemişse ekranlar boş kalmaz. Uygulama şu uyarıyla demo veri gösterir:
+
+```text
+Defender entegrasyonu yapılandırılmadı. Gösterilen veriler demo amaçlıdır.
+```
+
+Tenant ID, Client ID, Client Secret ve API Base URL girilip bağlantı başarılı olduktan ve senkronizasyon çalıştırıldıktan sonra ekranlar gerçek veritabanı kayıtlarını göstermeye başlar.
+
+### Defender Excel Export
+
+Defender ekranındaki Excel export aşağıdaki sayfaları üretir:
+
+1. `Defender_Ozet`
+2. `Defender_CVE_Listesi`
+3. `Defender_Cihaz_Yazilim_CVE`
+4. `Defender_Oneriler`
+
+Ana bulgular Excel import/export yapısı değiştirilmeden korunmuştur.

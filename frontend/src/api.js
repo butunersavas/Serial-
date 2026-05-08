@@ -67,3 +67,28 @@ export function exportUrl(ids = []) {
   const qs = ids.length ? `?ids=${ids.join(',')}` : '';
   return `${API_BASE_URL}/export/excel${qs}`;
 }
+
+export const getDefenderHealth = () => request('/defender/health');
+export const getDefenderSettings = () => request('/defender/settings');
+export const updateDefenderSettings = (payload) => request('/defender/settings', { method: 'PUT', body: JSON.stringify(payload) });
+export const testDefenderConnection = () => request('/defender/test-connection', { method: 'POST', body: JSON.stringify({}) });
+export const syncDefenderAll = () => request('/defender/sync/all', { method: 'POST', body: JSON.stringify({}) });
+export const getDefenderDashboard = () => request('/defender/dashboard');
+export const getDefenderVulnerabilities = (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return request(`/defender/vulnerabilities?${params.toString()}`);
+};
+export const getDefenderMachines = (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return request(`/defender/machines-vulnerabilities?${params.toString()}`);
+};
+export const getDefenderRecommendations = (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return request(`/defender/recommendations?${params.toString()}`);
+};
+export const convertDefenderCve = (cveId) => request(`/defender/vulnerabilities/${encodeURIComponent(cveId)}/convert-to-finding`, { method: 'POST', body: JSON.stringify({}) });
+export const convertDefenderMachine = (payload) => request('/defender/machines-vulnerabilities/convert-to-finding', { method: 'POST', body: JSON.stringify(payload) });
+export const defenderExportUrl = () => `${API_BASE_URL}/defender/export/excel`;

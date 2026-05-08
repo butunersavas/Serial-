@@ -119,3 +119,11 @@ class SystemLogOut(BaseModel):
     detail: str
     created_by: str
     created_at: datetime
+
+
+class DefenderSettingsIn(BaseModel):
+    tenant_id: str = ""
+    client_id: str = ""
+    client_secret: str = ""
+    api_base_url: str = "https://api.security.microsoft.com"
+    integration_enabled: bool = False
