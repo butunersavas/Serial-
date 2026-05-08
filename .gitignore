@@ -13,3 +13,9 @@ Resources/*.jpg
 Resources/*.jpeg
 Resources/*.ico
 Resources/*.bmp
+
+# Web/runtime artifacts
+frontend/node_modules/
+frontend/dist/
+backend/app/__pycache__/
+backend/*.db
