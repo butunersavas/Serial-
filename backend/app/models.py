@@ -26,6 +26,7 @@ class Finding(Base):
     due_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
     new_due_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
+    source: Mapped[str] = mapped_column(String(255), default="Manuel")
     updated_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True
     )

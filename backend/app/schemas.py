@@ -16,6 +16,7 @@ class FindingBase(BaseModel):
     due_date: date | None = None
     new_due_date: date | None = None
     note: str = ""
+    source: str = "Manuel"
 
 
 class FindingCreate(FindingBase):
