@@ -1,59 +1,174 @@
-# RadcKioskLauncher (.NET 8 WPF)
+# Kurumsal Güvenlik Bulgu Takip
 
-Windows 11 IoT Enterprise LTSC için shell replacement kiosk launcher örneği.
+Excel üzerinden gelen güvenlik testi bulgularını web arayüzüne aktarmak, açık/kapatıldı durumlarını yönetmek, durum seviyesine göre özet dashboard üretmek ve temiz Excel raporu dışa aktarmak için hazırlanmış örnek web uygulamasıdır.
 
-## Yeni Özellikler (Bu Revizyon)
-- Varsayılan `tr-TR` dil yapısı ve merkezi metin kaynağı (`Resources/TextResources.cs`).
-- Üst bar sadeleştirildi: `CihazAdı | IPv4` + opsiyonel ağ durumu.
-- Gizli yönetici girişi alanı (5 saniye basılı tutma + tooltip: **Yönetici Girişi**).
-- PIN tabanlı admin doğrulama (`adminPinHash` + geçiş için `adminPin` fallback).
-- Admin panel launcher içinde overlay olarak çalışır (ayrı pencere açılmaz).
-- Uygulama kartı tıklanınca launcher kendini gizler, başlatılan uygulamayı foreground'a getirir; süreç kapanınca launcher geri gelir ve tekrar topmost olur.
-- `folder` tipi desteklendi.
-- Windows araçlarında whitelist sıkılaştırıldı (`control` ve `ms-settings` için güvenli liste).
-- Alt+Tab görünürlüğünü azaltmak için launcher taskbar dışına alındı (`ShowInTaskbar=false`).
-- Örnek config Notepad yerine Work Resources `.lnk` kayıtlarını içerir.
+## Teknoloji Yığını
+
+- **Backend:** FastAPI, SQLAlchemy, OpenPyXL
+- **Frontend:** React, Material UI, Vite
+- **Veritabanı:** PostgreSQL
+- **Çalıştırma:** Docker Compose
 
 ## Özellikler
-- Explorer yerine shell çalışacak şekilde tasarlanmış **tam ekran / bordersız / topmost** WPF launcher.
-- MVVM + katmanlı yapı: `Models`, `Services`, `ViewModels`, `Views`, `Helpers`.
-- Config tabanlı whitelist uygulama çalıştırma (`exe`, `lnk`, `folder`, `control`, `settings`).
-- Hidden Admin Mode (`Ctrl+Shift+F12` veya üst bardaki gizli alan) + PIN doğrulama + opsiyonel Windows admin kimlik doğrulaması.
-- Config bozulursa stack trace göstermeyen güvenli hata ekranı.
-- Log dizini: `C:\ProgramData\RadcKiosk\logs`.
 
-## Dizinler
-- Config: `C:\ProgramData\RadcKiosk\config.json`
-- Logs: `C:\ProgramData\RadcKiosk\logs`
-- Örnek config: `Samples/config.sample.json`
+### Excel İçe Aktarma
 
-## Build
-```powershell
-dotnet restore
-dotnet build
+- Kullanıcı `.xlsx` veya `.xlsm` dosyası yükleyebilir.
+- Dosyada `Bulgular` sayfası varsa bu sayfa okunur; yoksa ilk sayfa kullanılır.
+- Kolon başlıkları Türkçe karakterlerden ve farklı yazım biçimlerinden bağımsız otomatik eşleştirilir.
+- `İlgili` kolonu varsa `İlgili Birim / Kurum` alanına aktarılır.
+- `İlgili Kişi` ayrı alan olarak tutulur.
+- Aynı `Kayıt No` yeniden import edilirse mevcut kayıt güncellenir, mükerrer kayıt oluşturulmaz.
+
+### Bulgular Ekranı
+
+Bulgular ekranında aşağıdaki kolonlar gösterilir ve düzenlenebilir alanlar web arayüzünden güncellenebilir:
+
+- Kayıt No
+- Bulgu Başlığı
+- Durum Seviyesi
+- Bulgunun Etkisi
+- Bulgunun Açıklaması
+- Çözüm Önerisi
+- İlgili Birim / Kurum
+- İlgili Kişi
+- Durum
+- Termin Tarih
+- Yeni Termin
+- Not
+- Son Güncelleme
+
+`Durum` alanı `Devam Ediyor` ve `Kapatıldı` seçeneklerine sahiptir. `Kapatıldı` seçilen satırlar açık yeşil renkte gösterilir.
+
+`Durum Seviyesi` alanı şu seçenekleri destekler:
+
+- Acil
+- Kritik
+- Yüksek
+- Orta
+- Düşük
+
+### Özet / Dashboard
+
+Dashboard üzerinde şu kartlar bulunur:
+
+- Toplam Bulgu
+- Kapatılan
+- Açık Kalan
+- Kapanma Oranı
+- Son Çalışma Saati
+
+Ayrıca `Durum Seviyesi | Toplam | Kapatılan | Açık Kalan` özet tablosu `Acil`, `Kritik`, `Yüksek`, `Orta`, `Düşük` ve `Toplam` satırlarıyla gösterilir.
+
+### Filtreler
+
+Bulgular ekranında aşağıdaki filtreler vardır:
+
+- Durum Seviyesi
+- Durum
+- İlgili Birim / Kurum
+- İlgili Kişi
+- Termin tarihi yaklaşanlar
+- Açık kalanlar
+- Kapatılanlar
+
+### Excel Dışa Aktarma
+
+- Tek tuşla `.xlsx` raporu alınır.
+- Excel içinde `Ozet` ve `Bulgular` sayfaları oluşturulur.
+- OpenPyXL ile geçerli Office Open XML dosyası üretildiği için Excel açılışında onarım/uyarı beklenmez.
+- `Kapatıldı` durumundaki satırlarda A ve C:K arası açık yeşil renkte boyanır.
+- `Durum` kolonunda Excel dropdown doğrulaması bulunur: `Devam Ediyor`, `Kapatıldı`.
+
+### Log
+
+Aşağıdaki işlemler `audit_logs` tablosunda saklanır:
+
+- Kim ne zaman import yaptı
+- Kim hangi bulguyu kapattı
+- Son çalışma saati
+- Son export zamanı
+- Kayıt oluşturma ve güncelleme işlemleri
+
+## Kurulum ve Çalıştırma
+
+### Gereksinimler
+
+- Docker
+- Docker Compose
+
+### Uygulamayı Başlatma
+
+```bash
+docker compose up --build
 ```
 
-## Single file self-contained publish (.NET 8, win-x64)
-```powershell
-dotnet publish -c Release -p:PublishProfile=Properties/PublishProfiles/win-x64-singlefile.pubxml
+Servisler ayağa kalktıktan sonra:
+
+- Frontend: <http://localhost:5173>
+- Backend API: <http://localhost:8000>
+- Swagger/OpenAPI: <http://localhost:8000/docs>
+- PostgreSQL: `localhost:5432`
+
+### Uygulamayı Durdurma
+
+```bash
+docker compose down
 ```
 
-## Config Şeması (özet)
-```json
-{
-  "language": "tr-TR",
-  "adminPinHash": "...",
-  "adminPin": "",
-  "showDeviceIp": true,
-  "showNetworkStatus": true,
-  "applications": [],
-  "systemTools": []
-}
+Veritabanı verilerini de silmek için:
+
+```bash
+docker compose down -v
 ```
 
-## Güvenlik Notları
-- Uygulama sadece config whitelist içindeki uygulama/araçları başlatır.
-- Path validation: traversal (`..`, `"`) içeren girişler reddedilir.
-- `control`/`settings` açılışları sadece whitelist komutları kabul eder.
-- Admin Mode dışında yönetim butonları görünmez.
-- Ham exception detayları UI'da gösterilmez, log'a yazılır.
+## Kullanım
+
+1. `docker compose up --build` komutu ile sistemi başlatın.
+2. Tarayıcıdan <http://localhost:5173> adresine gidin.
+3. Üst menüdeki **Excel İçe Aktar** butonu ile güvenlik bulgularını yükleyin.
+4. **Bulgular** sekmesinde kayıtları filtreleyin, düzenleyin ve durumlarını yönetin.
+5. Kapatılan kayıtlar açık yeşil renkte görüntülenir.
+6. **Özet / Dashboard** sekmesinde toplam/kapatılan/açık kalan metriklerini izleyin.
+7. **Excel Dışa Aktar** butonu ile `Ozet` ve `Bulgular` sayfalarını içeren raporu indirin.
+
+## API Özet
+
+- `GET /health`: Sağlık kontrolü
+- `GET /dashboard`: Özet metrikler ve durum seviyesi tablosu
+- `GET /findings`: Bulguları filtreli listeleme
+- `POST /findings`: Manuel bulgu oluşturma
+- `PATCH /findings/{finding_id}`: Bulgu güncelleme / kapatma
+- `POST /import`: Excel import
+- `GET /export`: Excel export
+- `GET /logs`: İşlem logları
+
+## Excel Kolon Eşleştirme Notları
+
+Import sırasında başlıklar normalize edilir. Örneğin aşağıdaki alternatifler desteklenir:
+
+- `Kayıt No`, `Kayit No`, `Kayıt Numarası`, `ID`
+- `Bulgu Başlığı`, `Başlık`, `Bulgu`
+- `Durum Seviyesi`, `Risk Seviyesi`, `Kritiklik`
+- `İlgili Birim / Kurum`, `İlgili Birim`, `İlgili Kurum`, `İlgili`
+- `İlgili Kişi`, `Sorumlu Kişi`, `Sorumlu`
+
+## Geliştirme
+
+Backend'i yerelde çalıştırmak için:
+
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+Frontend'i yerelde çalıştırmak için:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
