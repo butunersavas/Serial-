@@ -267,3 +267,49 @@ def build_export_openpyxl(findings: list[Finding], summary: dict[str, Any]) -> b
     stream = BytesIO()
     workbook.save(stream)
     return stream.getvalue()
+
+
+def build_defender_export(summary: dict[str, Any], vulnerabilities: list[dict[str, Any]], machines: list[dict[str, Any]], recommendations: list[dict[str, Any]]) -> bytes:
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "Defender_Ozet"
+    vuln_sheet = workbook.create_sheet("Defender_CVE_Listesi")
+    machine_sheet = workbook.create_sheet("Defender_Cihaz_Yazilim_CVE")
+    rec_sheet = workbook.create_sheet("Defender_Oneriler")
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+
+    summary_rows = [
+        ["Metrik", "Değer"],
+        ["Toplam CVE", summary.get("total_cve", 0)],
+        ["Kritik CVE", summary.get("critical_cve", 0)],
+        ["Yüksek CVE", summary.get("high_cve", 0)],
+        ["Etkilenen Cihaz", summary.get("affected_machines", 0)],
+        ["Public Exploit", summary.get("public_exploit", 0)],
+        ["Verified Exploit", summary.get("verified_exploit", 0)],
+        ["Remediation Bekleyen", summary.get("pending_remediation", 0)],
+        ["Son Sync", summary.get("last_sync", "")],
+    ]
+    for row in summary_rows:
+        summary_sheet.append(row)
+
+    def add_rows(sheet: Any, headers: list[str], rows: list[dict[str, Any]]) -> None:
+        sheet.append(headers)
+        for cell in sheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        for row in rows:
+            sheet.append([excel_value(row.get(header)) for header in headers])
+        for column_cells in sheet.columns:
+            max_length = max(len(str(cell.value or "")) for cell in column_cells)
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 60)
+
+    add_rows(vuln_sheet, ["cve_id", "description", "severity", "cvss_v3", "exposed_machines", "public_exploit", "exploit_verified", "epss", "published_on", "updated_on", "status"], vulnerabilities)
+    add_rows(machine_sheet, ["machine_name", "machine_id", "cve_id", "product_vendor", "product_name", "product_version", "severity", "fixing_kb_id", "recommendation_id", "remediation_status", "first_seen", "last_seen"], machines)
+    add_rows(rec_sheet, ["recommendation_id", "recommendation_name", "product_name", "vendor", "recommendation_category", "severity_score", "exposed_machines", "remediation_type", "status", "exposure_impact"], recommendations)
+    for cell in summary_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    stream = BytesIO()
+    workbook.save(stream)
+    return stream.getvalue()
