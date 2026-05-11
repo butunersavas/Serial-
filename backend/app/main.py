@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any
@@ -40,7 +41,7 @@ def ensure_schema() -> None:
 
 ensure_schema()
 
-app = FastAPI(title="Siber Risk ve Bulgu Yönetimi API")
+app = FastAPI(title="Risk ve Bulgu Yönetimi API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
@@ -129,6 +130,10 @@ def query_open(db: Session) -> Any:
 
 def group_count(rows: list[tuple[str | None, int]], fallback: str = "Belirtilmedi") -> list[dict[str, Any]]:
     return [{"name": name or fallback, "count": count} for name, count in rows]
+
+
+def split_related_people(value: str | None) -> list[str]:
+    return [part.strip() for part in re.split(r"[,;\n]+", value or "") if part.strip()]
 
 
 def as_out(finding: Finding) -> dict[str, Any]:
@@ -248,7 +253,7 @@ def list_findings(
     if related_unit:
         query = query.filter(Finding.related_unit == related_unit)
     if related_person:
-        query = query.filter(Finding.related_person == related_person)
+        query = query.filter(Finding.related_person.ilike(f"%{related_person}%"))
     if source:
         if source == "Excel":
             query = query.filter(~Finding.source.in_(["Manuel", "MSRC", "Defender"]))
@@ -283,7 +288,7 @@ def finding_filter_options(db: Session = Depends(get_db)) -> dict[str, list[str]
     source_labels = {"Excel" if src not in {"Manuel", "MSRC", "Defender"} else src for src in raw_sources}
     return {
         "related_units": values(Finding.related_unit),
-        "related_people": values(Finding.related_person),
+        "related_people": sorted({person for value in values(Finding.related_person) for person in split_related_people(value)}),
         "sources": sorted(source_labels or {"Manuel", "Excel", "MSRC", "Defender"}),
         "severities": SEVERITIES,
         "statuses": STATUSES,
@@ -331,14 +336,14 @@ def apply_update(db: Session, finding: Finding, data: dict[str, Any], current_ac
     if old_status != STATUS_CLOSED and finding.status == STATUS_CLOSED:
         finding.closed_at = now
         finding.closed_by = current_actor
-        add_finding_action(db, finding, "closed", current_actor, old_status, finding.status, "Bulgu kapatıldı")
+        add_finding_action(db, finding, "closed", current_actor, old_status, finding.status, note or "Bulgu kapatıldı")
     elif old_status == STATUS_CLOSED and finding.status != STATUS_CLOSED:
         finding.closed_at = None
         finding.closed_by = None
-        add_finding_action(db, finding, "reopened", current_actor, old_status, finding.status, "Bulgu tekrar açıldı")
+        add_finding_action(db, finding, "reopened", current_actor, old_status, finding.status, note or "Bulgu tekrar açıldı")
     add_finding_action(db, finding, "updated", current_actor, old, data, note)
     if "status" in data and old.get("status") != data.get("status"):
-        add_finding_action(db, finding, "status_changed", current_actor, old.get("status"), data.get("status"), "Durum değişti")
+        add_finding_action(db, finding, "status_changed", current_actor, old.get("status"), data.get("status"), note or "Durum değişti")
     if "severity" in data and old.get("severity") != data.get("severity"):
         add_finding_action(db, finding, "severity_changed", current_actor, old.get("severity"), data.get("severity"), "Durum seviyesi değişti")
     if ("due_date" in data and old.get("due_date") != data.get("due_date")) or ("new_due_date" in data and old.get("new_due_date") != data.get("new_due_date")):
