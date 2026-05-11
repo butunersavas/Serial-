@@ -38,9 +38,9 @@ FINDING_COLUMNS = [
 ]
 
 HEADER_ALIASES = {
-    "record_no": ["kayıt no", "kayit no", "no", "id"],
-    "title": ["bulgu başlığı", "bulgu basligi", "başlık", "baslik"],
-    "severity": ["durum seviyesi", "seviye", "risk", "öncelik", "oncelik"],
+    "record_no": ["kayıt no", "kayit no", "no"],
+    "title": ["bulgu adı", "bulgu adi", "bulgu başlığı", "bulgu basligi", "başlık", "baslik"],
+    "severity": ["önem derecesi", "onem derecesi", "durum seviyesi", "seviye", "risk", "öncelik", "oncelik"],
     "impact": ["bulgunun etkisi", "etki"],
     "description": ["bulgunun açıklaması", "bulgunun aciklamasi", "açıklama", "aciklama"],
     "recommendation": ["çözüm önerisi", "cozum onerisi", "öneri", "oneri"],
@@ -50,6 +50,47 @@ HEADER_ALIASES = {
     "due_date": ["termin tarih", "termin tarihi", "termin"],
     "new_due_date": ["yeni termin", "yeni termin tarih", "yeni termin tarihi"],
     "note": ["not", "notlar", "açık not", "acik not"],
+}
+
+IMPORT_FIELDS = {
+    "record_no",
+    "title",
+    "severity",
+    "impact",
+    "description",
+    "recommendation",
+    "related_unit",
+    "related_person",
+    "status",
+    "due_date",
+    "new_due_date",
+    "note",
+    "source",
+}
+
+NOTE_HEADER_ALIASES = {
+    "Erişim Noktası": ["erişim noktası", "erisim noktasi"],
+    "Kullanıcı Profili": ["kullanıcı profili", "kullanici profili"],
+    "Bulgunun Tespit Edildiği Bileşen/Bileşenler": [
+        "bulgunun tespit edildiği bileşen/bileşenler",
+        "bulgunun tespit edildigi bilesen/bilesenler",
+        "bulgunun tespit edildiği bileşen",
+        "bulgunun tespit edildigi bilesen",
+        "bileşen/bileşenler",
+        "bilesen/bilesenler",
+    ],
+}
+
+FORBIDDEN_IMPORT_FIELDS = {
+    "active_due_date",
+    "delay_days",
+    "sla_status",
+    "last_action_note",
+    "is_overdue",
+    "is_due_soon",
+    "updated_at",
+    "created_at",
+    "id",
 }
 
 
@@ -102,10 +143,53 @@ def build_header_map(headers: list[Any]) -> dict[str, int]:
     return header_map
 
 
-def row_to_payload(row: tuple[Any, ...], header_map: dict[str, int], fallback_no: int, source: str) -> dict[str, Any]:
-    payload: dict[str, Any] = {field: "" for field, _ in FINDING_COLUMNS if field != "updated_at"}
+def build_note_header_map(headers: list[Any]) -> dict[str, int]:
+    normalized_headers = [normalize_header(header) for header in headers]
+    header_map: dict[str, int] = {}
+    for label, aliases in NOTE_HEADER_ALIASES.items():
+        alias_set = {normalize_header(alias) for alias in aliases}
+        for index, normalized in enumerate(normalized_headers):
+            if normalized in alias_set:
+                header_map[label] = index
+                break
+    return header_map
+
+
+def find_header_row(rows: list[tuple[Any, ...]]) -> tuple[int, dict[str, int], dict[str, int]]:
+    best_row_index = 0
+    best_header_map: dict[str, int] = {}
+    best_note_header_map: dict[str, int] = {}
+    best_score = -1
+    for row_index, row in enumerate(rows):
+        header_map = build_header_map(list(row))
+        note_header_map = build_note_header_map(list(row))
+        score = len(header_map) + len(note_header_map)
+        if "title" in header_map:
+            score += 10
+        if score > best_score:
+            best_row_index = row_index
+            best_header_map = header_map
+            best_note_header_map = note_header_map
+            best_score = score
+    return best_row_index, best_header_map, best_note_header_map
+
+
+def allowed_import_fields() -> set[str]:
+    model_fields = {column.name for column in Finding.__table__.columns}
+    return (model_fields & IMPORT_FIELDS) - FORBIDDEN_IMPORT_FIELDS
+
+
+def clean_import_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    allowed_fields = allowed_import_fields()
+    return {field: value for field, value in payload.items() if field in allowed_fields}
+
+
+def row_to_payload(row: tuple[Any, ...], header_map: dict[str, int], note_header_map: dict[str, int], fallback_no: int, source: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {field: "" for field in allowed_import_fields()}
     payload.update({"record_no": f"IMPORT-{fallback_no}", "severity": "Orta", "status": STATUS_OPEN, "due_date": None, "new_due_date": None, "source": source})
     for field, index in header_map.items():
+        if field not in IMPORT_FIELDS:
+            continue
         value = row[index] if index < len(row) else None
         if field in {"due_date", "new_due_date"}:
             payload[field] = parse_date(value)
@@ -115,7 +199,16 @@ def row_to_payload(row: tuple[Any, ...], header_map: dict[str, int], fallback_no
             payload[field] = normalize_severity(value)
         else:
             payload[field] = str(value or "").strip()
-    return payload
+    extra_notes: list[str] = []
+    for label, index in note_header_map.items():
+        value = row[index] if index < len(row) else None
+        text = str(value or "").strip()
+        if text:
+            extra_notes.append(f"{label}: {text}")
+    if extra_notes:
+        existing_note = str(payload.get("note") or "").strip()
+        payload["note"] = "\n".join([part for part in [existing_note, *extra_notes] if part])
+    return clean_import_payload(payload)
 
 
 def read_excel(contents: bytes, filename: str = "Excel") -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -126,17 +219,16 @@ def read_excel(contents: bytes, filename: str = "Excel") -> tuple[list[dict[str,
     rows = list(sheet.iter_rows(values_only=True))
     if not rows:
         return [], []
-    header_map = build_header_map(list(rows[0]))
+    header_row_index, header_map, note_header_map = find_header_row(rows)
     errors: list[dict[str, Any]] = []
     payloads: list[dict[str, Any]] = []
-    if "record_no" not in header_map:
-        errors.append({"row": 1, "message": "Kayıt No kolonu bulunamadı"})
-    for row_number, row in enumerate(rows[1:], start=2):
+    if "title" not in header_map:
+        errors.append({"row": header_row_index + 1, "message": "Bulgu Adı kolonu bulunamadı"})
+    for row_number, row in enumerate(rows[header_row_index + 1 :], start=header_row_index + 2):
         if not any(cell not in (None, "") for cell in row):
             continue
-        payload = row_to_payload(row, header_map, row_number, filename)
-        if not payload["record_no"]:
-            errors.append({"row": row_number, "message": "Kayıt No boş olamaz"})
+        payload = row_to_payload(row, header_map, note_header_map, row_number, filename)
+        if not payload.get("title"):
             continue
         payloads.append(payload)
     return payloads, errors
