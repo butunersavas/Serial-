@@ -43,12 +43,12 @@ const theme = createTheme({
     borderRadius: 14,
   },
   typography: {
-    fontFamily: ['Inter', 'Roboto', 'Arial', 'sans-serif'].join(','),
+    fontFamily: '"Segoe UI", Arial, Helvetica, sans-serif',
     h5: {
-      fontWeight: 800,
+      fontWeight: 750,
     },
     h6: {
-      fontWeight: 800,
+      fontWeight: 750,
     },
     button: {
       fontWeight: 700,
@@ -61,6 +61,13 @@ const theme = createTheme({
         root: {
           background: 'linear-gradient(90deg, #071d36 0%, #0f2f57 48%, #164f84 100%)',
           boxShadow: '0 10px 28px rgba(7, 29, 54, 0.22)',
+        },
+      },
+    },
+    MuiContainer: {
+      styleOverrides: {
+        root: {
+          maxWidth: '1520px !important',
         },
       },
     },
@@ -79,6 +86,7 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: 'none',
+          borderRadius: 14,
         },
       },
     },
