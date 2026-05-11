@@ -273,6 +273,15 @@ function reportDateOnly(value) {
 function isFindingOpen(row) { return row.status !== 'Kapatıldı'; }
 function isReportOverdue(row, today = new Date()) { const due = reportDateOnly(row.active_due_date); const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()); return isFindingOpen(row) && due && due < start; }
 function isReportDueSoon(row, today = new Date()) { const due = reportDateOnly(row.active_due_date); const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()); const limit = new Date(start.getTime() + REPORT_DUE_SOON_DAYS * 86400000); return isFindingOpen(row) && due && due >= start && due <= limit; }
+const reportCardFilters = [
+  { key: 'total', label: 'Toplam Bulgu', activeLabel: 'Toplam Bulgu', accent: CARD_ACCENTS.total, filename: 'tum-bulgular.xlsx', predicate: () => true },
+  { key: 'open', label: 'Açık Bulgu', activeLabel: 'Açık Bulgular', accent: CARD_ACCENTS.open, filename: 'acik-bulgular.xlsx', predicate: isFindingOpen },
+  { key: 'closed', label: 'Kapatılan Bulgu', activeLabel: 'Kapatılan Bulgular', accent: CARD_ACCENTS.closed, filename: 'kapatilan-bulgular.xlsx', predicate: (row) => row.status === 'Kapatıldı' },
+  { key: 'urgentCritical', label: 'Acil + Kritik Açık', activeLabel: 'Acil + Kritik Açık', accent: CARD_ACCENTS.critical, filename: 'acil-kritik-acik-bulgular.xlsx', predicate: (row) => isFindingOpen(row) && ['Acil', 'Kritik'].includes(row.severity) },
+  { key: 'high', label: 'Yüksek Açık', activeLabel: 'Yüksek Açık Bulgular', accent: CARD_ACCENTS.high, filename: 'yuksek-acik-bulgular.xlsx', predicate: (row) => isFindingOpen(row) && row.severity === 'Yüksek' },
+  { key: 'overdue', label: 'Termin Geçen', activeLabel: 'Termin Geçen Bulgular', accent: CARD_ACCENTS.overdue, filename: 'termin-gecen-bulgular.xlsx', predicate: isReportOverdue },
+  { key: 'dueSoon', label: 'Termin Yaklaşan', activeLabel: 'Termin Yaklaşan Bulgular', accent: CARD_ACCENTS.dueSoon, filename: 'termin-yaklasan-bulgular.xlsx', predicate: isReportDueSoon },
+];
 function reportDueState(row) { if (!row.active_due_date) return 'Terminsiz'; if (isReportOverdue(row)) return 'Termin Geçen'; if (isReportDueSoon(row)) return 'Termin Yaklaşan'; return 'Zamanında'; }
 function uniqueOptions(rows, key) { return [...new Set(rows.flatMap((row) => (key === 'related_person' ? splitRelatedPeople(row[key]) : [row[key]]).map((x) => String(x || '').trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b, 'tr')); }
 function includesText(value, search) { return String(value || '').toLocaleLowerCase('tr-TR').includes(search); }
@@ -307,13 +316,14 @@ function ReportFindingTable({ title, rows, filename, onSelect, show }) {
 function Reports({ findings, show }) {
   const [detail, setDetail] = useState(null);
   const [filters, setFilters] = useState(emptyFilters);
+  const [activeReportCard, setActiveReportCard] = useState('');
   const options = useMemo(() => ({
     severities,
     statuses,
     related_units: uniqueOptions(findings, 'related_unit'),
     related_people: uniqueOptions(findings, 'related_person'),
   }), [findings]);
-  const filteredFindings = useMemo(() => {
+  const generalFilteredFindings = useMemo(() => {
     const search = filters.search.trim().toLocaleLowerCase('tr-TR');
     return findings.filter((row) => {
       if (search) {
@@ -328,35 +338,34 @@ function Reports({ findings, show }) {
       return true;
     });
   }, [findings, filters]);
+  const activeCardDefinition = reportCardFilters.find((card) => card.key === activeReportCard);
+  const filteredFindings = useMemo(() => (activeCardDefinition ? generalFilteredFindings.filter(activeCardDefinition.predicate) : generalFilteredFindings), [activeCardDefinition, generalFilteredFindings]);
   const reportGroups = useMemo(() => ({
-    urgentCritical: filteredFindings.filter((row) => isFindingOpen(row) && ['Acil', 'Kritik'].includes(row.severity)),
-    high: filteredFindings.filter((row) => isFindingOpen(row) && row.severity === 'Yüksek'),
-    overdue: filteredFindings.filter((row) => isReportOverdue(row)),
-    dueSoon: filteredFindings.filter((row) => isReportDueSoon(row)),
+    urgentCritical: filteredFindings.filter(reportCardFilters.find((card) => card.key === 'urgentCritical').predicate),
+    high: filteredFindings.filter(reportCardFilters.find((card) => card.key === 'high').predicate),
+    overdue: filteredFindings.filter(reportCardFilters.find((card) => card.key === 'overdue').predicate),
+    dueSoon: filteredFindings.filter(reportCardFilters.find((card) => card.key === 'dueSoon').predicate),
   }), [filteredFindings]);
-  const summaryCards = [
-    ['Toplam Bulgu', filteredFindings.length, CARD_ACCENTS.total],
-    ['Açık Bulgu', filteredFindings.filter(isFindingOpen).length, CARD_ACCENTS.open],
-    ['Kapatılan Bulgu', filteredFindings.filter((row) => row.status === 'Kapatıldı').length, CARD_ACCENTS.closed],
-    ['Acil + Kritik Açık', reportGroups.urgentCritical.length, CARD_ACCENTS.critical],
-    ['Yüksek Açık', reportGroups.high.length, CARD_ACCENTS.high],
-    ['Termin Geçen', reportGroups.overdue.length, CARD_ACCENTS.overdue],
-    ['Termin Yaklaşan', reportGroups.dueSoon.length, CARD_ACCENTS.dueSoon],
-  ];
+  const summaryCards = reportCardFilters.map((card) => ({ ...card, value: generalFilteredFindings.filter(card.predicate).length }));
   const setFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
   const activeFilters = Object.entries(filters).filter(([, value]) => Boolean(value));
-  const clearFilters = () => setFilters(emptyFilters);
+  const clearGeneralFilters = () => setFilters(emptyFilters);
+  const clearAllFilters = () => { setFilters(emptyFilters); setActiveReportCard(''); };
+  const activeFilterTitle = activeCardDefinition ? activeCardDefinition.activeLabel : '';
+  const activeResultsFilename = activeCardDefinition?.filename || 'filtrelenmis-bulgular.xlsx';
 
   return <Stack spacing={2.5} sx={{ minWidth: 0 }}><SectionHeader title="Raporlar" description="Güvenlik bulgularını yönetici özeti, filtrelenebilir tablolar ve tablo bazlı Excel çıktılarıyla takip edin." />
-    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(7, minmax(0, 1fr))' }, gap: 2, alignItems: 'stretch' }}>{summaryCards.map(([label, value, accent]) => <SummaryCard key={label} label={label} value={value} accent={accent} />)}</Box>
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(7, minmax(0, 1fr))' }, gap: 2, alignItems: 'stretch' }}>{summaryCards.map((card) => <SummaryCard key={card.key} label={card.label} value={card.value} accent={card.accent} selected={activeReportCard === card.key} onClick={() => setActiveReportCard(card.key)} />)}</Box>
+    {activeCardDefinition ? <Alert severity="info" action={<Button color="inherit" size="small" onClick={clearAllFilters}>Filtreyi Temizle</Button>} sx={{ alignItems: 'center' }}><b>Aktif filtre:</b> {activeFilterTitle}. Genel filtreler bu kart filtresinin üzerine uygulanır; temizleme butonu kart ve genel filtreleri kaldırır.</Alert> : null}
     <Paper sx={{ p: 2, border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden' }}><Stack spacing={1.5}><Typography variant="h6">Genel Filtreler</Typography><Grid container spacing={1.5} alignItems="center"><Grid item xs={12} md={3}><TextField size="small" fullWidth label="Arama" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} placeholder="Başlık, kayıt no, açıklama..." /></Grid>{[
       ['severity', 'Seviye', options.severities], ['status', 'Durum', options.statuses], ['related_unit', 'Birim', options.related_units], ['related_person', 'İlgili Kişi', options.related_people], ['due_state', 'Termin Durumu', ['Termin Geçen', 'Termin Yaklaşan', 'Terminsiz', 'Zamanında']],
-    ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearFilters} variant={activeFilters.length ? 'contained' : 'text'}>Filtreleri Temizle</Button></Grid>{activeFilters.length ? <Grid item xs={12}><Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{activeFilters.map(([key, value]) => <Chip key={key} label={filterLabel(key, value)} onDelete={() => setFilter(key, '')} color="primary" variant="outlined" />)}</Stack></Grid> : null}</Grid></Stack></Paper>
+    ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearGeneralFilters} variant={activeFilters.length ? 'contained' : 'text'}>Genel Filtreleri Temizle</Button></Grid>{activeFilters.length ? <Grid item xs={12}><Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{activeFilters.map(([key, value]) => <Chip key={key} label={filterLabel(key, value)} onDelete={() => setFilter(key, '')} color="primary" variant="outlined" />)}</Stack></Grid> : null}</Grid></Stack></Paper>
+    {activeCardDefinition ? <ReportFindingTable title={`Aktif Filtre Sonuçları: ${activeFilterTitle}`} rows={filteredFindings} filename={activeResultsFilename} onSelect={setDetail} show={show} /> : null}
     <ReportFindingTable title="Acil ve Kritik Açık Bulgular" rows={reportGroups.urgentCritical} filename="acil-kritik-acik-bulgular.xlsx" onSelect={setDetail} show={show} />
     <ReportFindingTable title="Yüksek Seviyeli Açık Bulgular" rows={reportGroups.high} filename="yuksek-acik-bulgular.xlsx" onSelect={setDetail} show={show} />
     <ReportFindingTable title="Termin Geçen Bulgular" rows={reportGroups.overdue} filename="termin-gecen-bulgular.xlsx" onSelect={setDetail} show={show} />
     <ReportFindingTable title="Termin Yaklaşan Bulgular" rows={reportGroups.dueSoon} filename="termin-yaklasan-bulgular.xlsx" onSelect={setDetail} show={show} />
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}><Button variant="contained" href={exportUrl()}>Tüm Bulgular Excel Export</Button><Button variant="outlined" href={defenderExportUrl()}>Defender Excel Export</Button></Stack>
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}><Button variant="contained" onClick={() => downloadReportExcel(filteredFindings, activeCardDefinition ? activeResultsFilename : 'tum-rapor-bulgulari.xlsx', show)} disabled={!filteredFindings.length}>{activeCardDefinition ? 'Aktif Filtre Excel Export' : 'Tüm Bulgular Excel Export'}</Button><Button variant="outlined" href={defenderExportUrl()}>Defender Excel Export</Button></Stack>
     <FindingDetail finding={detail} onClose={() => setDetail(null)} show={show} />
   </Stack>;
 }
