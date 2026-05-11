@@ -257,6 +257,61 @@ def import_findings(db: Session, contents: bytes, filename: str, current_actor: 
     return {"message": "İçe aktarma tamamlandı", "created": created, "updated": updated, "failed": len(errors), "errors": errors}
 
 
+def build_import_template() -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Bulgular"
+    headers = [
+        "Bulgu Adı",
+        "Önem Derecesi",
+        "Erişim Noktası",
+        "Kullanıcı Profili",
+        "Bulgunun Tespit Edildiği Bileşen/Bileşenler",
+        "Bulgunun Etkisi",
+        "Bulgunun Açıklaması",
+        "Çözüm Önerisi",
+        "İlgili Birim / Kurum",
+        "İlgili Kişi",
+        "Durum",
+        "Termin Tarih",
+        "Yeni Termin",
+    ]
+    sheet.append(["Sürat Kargo Sızma Testi-Güvenlik Bulguları - 2026"])
+    sheet.append(headers)
+    examples = [
+        ["Örnek - Yönetim panelinde güçlü parola politikası eksik", "Orta", "Örnek URL", "Örnek kullanıcı", "Örnek web uygulaması", "Örnek etki açıklaması", "Bu satır örnek amaçlıdır; içe aktarmadan önce silinebilir.", "Örnek çözüm önerisi", "Örnek Birim", "Örnek Kişi", STATUS_OPEN, date.today(), None],
+        ["Örnek - Güncel olmayan bileşen kullanımı", "Yüksek", "Örnek servis", "Örnek profil", "Örnek bileşen", "Örnek etki", "Bu kayıt gerçek sistem kaydı değildir.", "Örnek paket güncelleme aksiyonu", "Örnek BT", "Örnek Sorumlu", STATUS_OPEN, date.today(), date.today()],
+        ["Örnek - Kapatılmış test bulgusu", "Düşük", "Örnek endpoint", "Örnek rol", "Örnek API", "Örnek düşük etki", "Şablon formatını göstermek için eklenmiştir.", "Örnek doğrulama", "Örnek Operasyon", "", STATUS_CLOSED, date.today(), None],
+    ]
+    for row in examples:
+        sheet.append(row)
+    title_fill = PatternFill("solid", fgColor="D9EAF7")
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+    sheet["A1"].font = Font(bold=True, size=13, color="0F2F57")
+    sheet["A1"].fill = title_fill
+    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+    for cell in sheet[2]:
+        cell.fill = header_fill
+        cell.font = header_font
+    severity_validation = DataValidation(type="list", formula1='"Acil,Kritik,Yüksek,Orta,Düşük"', allow_blank=False)
+    status_validation = DataValidation(type="list", formula1='"Devam Ediyor,Kapatıldı"', allow_blank=False)
+    sheet.add_data_validation(severity_validation)
+    sheet.add_data_validation(status_validation)
+    severity_validation.add("B3:B500")
+    status_validation.add("K3:K500")
+    for row in range(3, 501):
+        sheet[f"L{row}"].number_format = "dd.mm.yyyy"
+        sheet[f"M{row}"].number_format = "dd.mm.yyyy"
+    widths = [34, 18, 22, 22, 42, 32, 42, 34, 28, 24, 18, 16, 16]
+    for idx, width in enumerate(widths, start=1):
+        sheet.column_dimensions[sheet.cell(row=2, column=idx).column_letter].width = width
+    sheet.freeze_panes = "A3"
+    stream = BytesIO()
+    workbook.save(stream)
+    return stream.getvalue()
+
+
 def preview_findings(contents: bytes, filename: str) -> dict[str, Any]:
     payloads, errors = read_excel(contents, filename)
     return {"preview": payloads[:50], "total": len(payloads), "failed": len(errors), "errors": errors}

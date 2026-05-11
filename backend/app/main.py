@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .services.defender_auth_service import DefenderAuthError
 from .services.defender_service import DEFAULT_DEFENDER_API_BASE_URL, DefenderApiError, DefenderService
-from .excel import build_defender_export, build_export, import_findings, preview_findings
+from .excel import build_defender_export, build_export, build_import_template, import_findings, preview_findings
 from .models import AuditLog, DefenderMachineVulnerability, DefenderRecommendation, DefenderSettings, DefenderSyncLog, DefenderVulnerability, Finding, FindingAction, SEVERITIES, STATUS_CLOSED, STATUS_OPEN, STATUSES, SystemLog
 from .schemas import ActionCreate, AuditLogOut, BulkIds, BulkUpdate, DefenderSettingsIn, FindingActionOut, FindingCreate, FindingOut, FindingUpdate, SystemLogOut
 
@@ -225,24 +225,45 @@ def due_soon_findings(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
 
 
 @api.get("/findings", response_model=list[FindingOut])
-def list_findings(db: Session = Depends(get_db), severity: str | None = None, status: str | None = None, sla_status: str | None = None, related_unit: str | None = None, related_person: str | None = None, search: str | None = None, approaching_due: bool = False, overdue: bool = False, open_only: bool = False, closed_only: bool = False) -> list[dict[str, Any]]:
+def list_findings(
+    db: Session = Depends(get_db),
+    severity: str | None = None,
+    status: str | None = None,
+    sla_status: str | None = None,
+    related_unit: str | None = None,
+    related_person: str | None = None,
+    search: str | None = None,
+    due_state: str | None = None,
+    source: str | None = None,
+    approaching_due: bool = False,
+    overdue: bool = False,
+    open_only: bool = False,
+    closed_only: bool = False,
+) -> list[dict[str, Any]]:
     query = db.query(Finding)
     if severity:
         query = query.filter(Finding.severity == severity)
     if status:
         query = query.filter(Finding.status == status)
     if related_unit:
-        query = query.filter(Finding.related_unit.ilike(f"%{related_unit}%"))
+        query = query.filter(Finding.related_unit == related_unit)
     if related_person:
-        query = query.filter(Finding.related_person.ilike(f"%{related_person}%"))
+        query = query.filter(Finding.related_person == related_person)
+    if source:
+        if source == "Excel":
+            query = query.filter(~Finding.source.in_(["Manuel", "MSRC", "Defender"]))
+        else:
+            query = query.filter(Finding.source == source)
     if search:
         like = f"%{search}%"
-        query = query.filter(or_(Finding.record_no.ilike(like), Finding.title.ilike(like), Finding.description.ilike(like), Finding.related_unit.ilike(like), Finding.related_person.ilike(like)))
+        query = query.filter(or_(Finding.record_no.ilike(like), Finding.title.ilike(like), Finding.description.ilike(like), Finding.recommendation.ilike(like), Finding.related_unit.ilike(like), Finding.related_person.ilike(like)))
     today = date.today()
-    if approaching_due:
+    if approaching_due or due_state == "Termin Yaklaşan":
         query = query.filter(Finding.status != STATUS_CLOSED, due_column().between(today, today + timedelta(days=7)))
-    if overdue:
+    if overdue or due_state == "Geciken":
         query = query.filter(Finding.status != STATUS_CLOSED, due_column() < today)
+    if due_state == "Terminsiz":
+        query = query.filter(Finding.due_date.is_(None), Finding.new_due_date.is_(None))
     if open_only:
         query = query.filter(Finding.status != STATUS_CLOSED)
     if closed_only:
@@ -251,6 +272,22 @@ def list_findings(db: Session = Depends(get_db), severity: str | None = None, st
     if sla_status:
         rows = [row for row in rows if compute_sla(row)[0] == sla_status]
     return findings_out(rows)
+
+
+@api.get("/findings/filter-options")
+def finding_filter_options(db: Session = Depends(get_db)) -> dict[str, list[str]]:
+    def values(column: Any) -> list[str]:
+        return sorted({str(value or "").strip() for (value,) in db.query(column).distinct().all() if str(value or "").strip()})
+
+    raw_sources = values(Finding.source)
+    source_labels = {"Excel" if src not in {"Manuel", "MSRC", "Defender"} else src for src in raw_sources}
+    return {
+        "related_units": values(Finding.related_unit),
+        "related_people": values(Finding.related_person),
+        "sources": sorted(source_labels or {"Manuel", "Excel", "MSRC", "Defender"}),
+        "severities": SEVERITIES,
+        "statuses": STATUSES,
+    }
 
 
 @api.get("/findings/{finding_id}", response_model=FindingOut)
@@ -405,6 +442,11 @@ def bulk_close(payload: BulkIds, db: Session = Depends(get_db), current_actor: s
     add_system_log(db, "finding_update", "Toplu bulgu kapatma", {"ids": payload.ids, "closed": closed}, current_actor)
     db.commit()
     return {"message": "Toplu kapatma tamamlandı", "closed": closed}
+
+
+@api.get("/import/template")
+def import_template() -> StreamingResponse:
+    return StreamingResponse(BytesIO(build_import_template()), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": "attachment; filename=bulgu_import_sablonu.xlsx"})
 
 
 @api.post("/import/excel")

@@ -50,6 +50,7 @@ class FindingOut(FindingBase):
     delay_days: int = 0
     sla_status: str = "Zamanında"
     active_due_date: date | None = None
+    due_date_change_count: int = 0
     updated_at: datetime
     created_at: datetime
 
