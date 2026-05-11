@@ -31,6 +31,7 @@ async function request(path, options = {}) {
 }
 
 export const getDashboard = () => request('/dashboard/summary');
+export const getFindingFilterOptions = () => request('/findings/filter-options');
 export const getLogs = () => request('/logs');
 export const getActions = (id) => request(`/findings/${id}/actions`);
 export const addAction = (id, payload) => request(`/findings/${id}/actions`, { method: 'POST', body: JSON.stringify(payload) });
@@ -67,6 +68,8 @@ export function exportUrl(ids = []) {
   const qs = ids.length ? `?ids=${ids.join(',')}` : '';
   return `${API_BASE_URL}/export/excel${qs}`;
 }
+
+export const importTemplateUrl = () => `${API_BASE_URL}/import/template`;
 
 export const getDefenderHealth = () => request('/defender/health');
 export const getDefenderSettings = () => request('/defender/settings');

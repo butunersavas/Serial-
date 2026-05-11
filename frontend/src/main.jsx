@@ -4,14 +4,14 @@ import {
   Alert, AppBar, Box, Button, Card, CardContent, Checkbox, Chip, Container, CssBaseline, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, Drawer, FormControl, FormControlLabel, Grid, InputLabel, List,
   ListItemButton, ListItemText, MenuItem, Paper, Select, Snackbar, Stack, Tab, Tabs, Table, TableBody,
-  TableCell, TableContainer, TableHead, TableRow, TextField, ThemeProvider, Toolbar, Typography,
+  TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, ThemeProvider, Toolbar, Tooltip, Typography,
 } from '@mui/material';
 import theme, { severityColors } from './theme';
 import {
   addAction, closeFindingApi, convertDefenderCve, convertDefenderMachine, createFinding, defenderExportUrl,
   deleteFinding, exportUrl, getActions, getDashboard, getDefenderDashboard, getDefenderMachines,
-  getDefenderRecommendations, getDefenderSettings, getDefenderVulnerabilities, getFindings, getLogs,
-  importExcel, previewExcel, reopenFindingApi, syncDefenderAll, testDefenderConnection, updateDefenderSettings,
+  getDefenderRecommendations, getDefenderSettings, getDefenderVulnerabilities, getFindingFilterOptions, getFindings, getLogs,
+  importExcel, importTemplateUrl, previewExcel, reopenFindingApi, syncDefenderAll, testDefenderConnection, updateDefenderSettings,
   updateFinding,
 } from './api';
 
@@ -19,29 +19,36 @@ const LOGO_SRC = '/assets/surat-logo.svg';
 const DRAWER_WIDTH = 292;
 const severities = ['Acil', 'Kritik', 'Yüksek', 'Orta', 'Düşük'];
 const statuses = ['Devam Ediyor', 'Kapatıldı'];
-const navigationItems = ['Gösterge Paneli', 'Bulgular', 'Bulgu Ekle', 'Excel ile Bulgu Ekle', 'Microsoft CVE / MSRC', 'Defender Zafiyetleri', 'Raporlar', 'Ayarlar'];
+const navigationItems = ['Gösterge Paneli', 'Bulgular', 'Bulgu Ekle', 'Microsoft CVE / MSRC', 'Defender Zafiyetleri', 'Raporlar', 'Ayarlar'];
 const emptyFinding = { record_no: '', title: '', severity: 'Orta', impact: '', description: '', recommendation: '', related_unit: '', related_person: '', status: 'Devam Ediyor', due_date: '', new_due_date: '', note: '', source: 'Manuel' };
 
 function formatDate(value) { return value ? new Date(value).toLocaleString('tr-TR') : '-'; }
 function formatDay(value) { return value ? new Date(value).toLocaleDateString('tr-TR') : '-'; }
+function isOverdue(row) { return row.status !== 'Kapatıldı' && row.active_due_date && new Date(row.active_due_date) < new Date(new Date().toDateString()); }
+function isDueSoon(row) { const today = new Date(new Date().toDateString()); const due = row.active_due_date ? new Date(row.active_due_date) : null; return row.status !== 'Kapatıldı' && due && due >= today && due <= new Date(today.getTime() + 7 * 86400000); }
 function BrandLogo({ height = 40 }) { return <Box component="img" src={LOGO_SRC} alt="Sürat Kargo" sx={{ display: 'block', height, maxHeight: height, maxWidth: '100%', objectFit: 'contain' }} />; }
 function SeverityChip({ severity }) { return <Chip label={severity || '-'} size="small" sx={{ minWidth: 72, bgcolor: severityColors[severity] || { Critical: '#991b1b', High: '#dc2626', Medium: '#f59e0b', Low: '#16a34a' }[severity] || 'primary.main', color: severity === 'Orta' || severity === 'Medium' ? '#1f2937' : '#fff', fontWeight: 800 }} />; }
-function SummaryCard({ label, value, helper, accent = 'primary.main' }) { return <Card sx={{ height: '100%' }}><CardContent><Stack direction="row" justifyContent="space-between" spacing={2}><Box><Typography color="text.secondary" variant="body2" fontWeight={700}>{label}</Typography><Typography variant="h4" fontWeight={900} sx={{ mt: .5 }}>{value ?? '-'}</Typography></Box><Box sx={{ width: 10, height: 54, borderRadius: 10, bgcolor: accent }} /></Stack>{helper && <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: 1.5 }}>{helper}</Typography>}</CardContent></Card>; }
+function SummaryCard({ label, value, helper, accent = 'primary.main', onClick }) { return <Card onClick={onClick} sx={{ height: '100%', cursor: onClick ? 'pointer' : 'default', transition: 'transform .15s ease, box-shadow .15s ease', '&:hover': onClick ? { transform: 'translateY(-2px)', boxShadow: 5 } : undefined }}><CardContent><Stack direction="row" justifyContent="space-between" spacing={2}><Box><Typography color="text.secondary" variant="body2" fontWeight={700}>{label}</Typography><Typography variant="h4" fontWeight={900} sx={{ mt: .5 }}>{value ?? '-'}</Typography></Box><Box sx={{ width: 10, height: 54, borderRadius: 10, bgcolor: accent }} /></Stack>{helper && <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: 1.5 }}>{helper}</Typography>}</CardContent></Card>; }
 function SectionHeader({ title, description }) { return <Box sx={{ mb: 2.5 }}><Typography variant="h5" color="primary.dark">{title}</Typography><Typography color="text.secondary" sx={{ mt: .5 }}>{description}</Typography></Box>; }
 
 function DataTable({ title, rows = [], columns, actions }) {
   return <Paper sx={{ p: 2.5, height: '100%', border: '1px solid rgba(15, 47, 87, 0.08)' }}><Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography><TableContainer><Table size="small"><TableHead><TableRow>{columns.map((c) => <TableCell key={c.key}>{c.label}</TableCell>)}{actions && <TableCell>İşlem</TableCell>}</TableRow></TableHead><TableBody>{rows.length ? rows.map((row, i) => <TableRow hover key={row.id || row.cve_id || row.recommendation_id || i}>{columns.map((c) => <TableCell key={c.key}>{c.render ? c.render(row) : (row[c.key] ?? '-')}</TableCell>)}{actions && <TableCell>{actions(row)}</TableCell>}</TableRow>) : <TableRow><TableCell colSpan={columns.length + (actions ? 1 : 0)}>Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer></Paper>;
 }
 
-function Dashboard({ summary }) {
+function Dashboard({ summary, onFindingsFilter }) {
   const d = summary || {};
   const defender = d.defender_summary || {};
   const cards = [
-    ['Toplam Bulgu', d.total, 'Tüm kayıtlar'], ['Açık Kalan', d.open, 'Kapatılmamış kayıtlar'], ['Kapatılan', d.closed, 'Tamamlanan kayıtlar'],
-    ['Kritik', d.severity_counts?.Kritik || 0, 'Kritik seviye', severityColors.Kritik], ['Yüksek', d.severity_counts?.Yüksek || 0, 'Yüksek seviye', severityColors.Yüksek], ['Geciken Bulgular', d.overdue || d.delayed || 0, 'Aktif termini geçmiş'],
+    ['Toplam Bulgu', d.total, 'Tüm kayıtlar', 'primary.main', {}],
+    ['Açık Kalan', d.open, 'Kapatılmamış kayıtlar', '#64748b', { status: 'Devam Ediyor' }],
+    ['Kapatılan', d.closed, 'Tamamlanan kayıtlar', '#16a34a', { status: 'Kapatıldı' }],
+    ['Kritik', d.severity_counts?.Kritik || 0, 'Kritik seviye', severityColors.Kritik, { severity: 'Kritik' }],
+    ['Yüksek', d.severity_counts?.Yüksek || 0, 'Yüksek seviye', severityColors.Yüksek, { severity: 'Yüksek' }],
+    ['Geciken Bulgular', d.overdue || d.delayed || 0, 'Aktif termini geçmiş', '#dc2626', { due_state: 'Geciken' }],
+    ['Termin Yaklaşan', d.due_soon || 0, '7 gün içinde', '#f59e0b', { due_state: 'Termin Yaklaşan' }],
   ];
   return <Stack spacing={3}><SectionHeader title="Gösterge Paneli" description="Bulgular, SLA durumu ve Defender zafiyet özetleri." />
-    <Grid container spacing={2}>{cards.map(([label, value, helper, accent]) => <Grid item xs={12} sm={6} md={4} lg={2} key={label}><SummaryCard label={label} value={value} helper={helper} accent={accent} /></Grid>)}</Grid>
+    <Grid container spacing={2}>{cards.map(([label, value, helper, accent, filters]) => <Grid item xs={12} sm={6} md={4} lg={12 / 7} key={label}><SummaryCard label={label} value={value} helper={helper} accent={accent} onClick={() => onFindingsFilter(filters)} /></Grid>)}</Grid>
     <Paper sx={{ p: 2.5 }}><Typography variant="h6" sx={{ mb: 2 }}>Microsoft Defender Özeti</Typography><Grid container spacing={2}>{[
       ['Defender Toplam CVE', defender.total_cve || 0], ['Kritik Defender CVE', defender.critical_cve || 0], ['Yüksek Defender CVE', defender.high_cve || 0], ['Etkilenen Cihaz Sayısı', defender.affected_machines || 0], ['Public Exploit', defender.public_exploit || 0], ['Bulguya Dönüştürülen Defender CVE', defender.converted_findings || 0],
     ].map(([label, value]) => <Grid item xs={12} md={2} key={label}><SummaryCard label={label} value={value} /></Grid>)}</Grid></Paper>
@@ -62,23 +69,48 @@ function FindingForm({ initial = emptyFinding, onSubmit, submitLabel = 'Kaydet' 
     <Grid item xs={12}><Button type="submit" variant="contained">{submitLabel}</Button></Grid></Grid></Box>;
 }
 
-function FindingsPage({ findings, refresh, show }) {
-  const [detail, setDetail] = useState(null); const [editing, setEditing] = useState(null);
-  const saveEdit = async (payload) => { try { await updateFinding(editing.id, payload); setEditing(null); show('Bulgu güncellendi.', 'success'); refresh(); } catch (e) { show(e.message, 'error'); } };
-  return <><SectionHeader title="Bulgular" description="İç bulgu kayıtları, durum ve aksiyon işlemleri." /><DataTable title="Bulgu Listesi" rows={findings} columns={[{ key: 'record_no', label: 'Kayıt No' }, { key: 'title', label: 'Başlık' }, { key: 'severity', label: 'Seviye', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'related_unit', label: 'Birim' }, { key: 'status', label: 'Durum' }, { key: 'active_due_date', label: 'Termin', render: (r) => formatDay(r.active_due_date) }]} actions={(r) => <Stack direction="row" spacing={1}><Button size="small" onClick={() => setDetail(r)}>Detay</Button><Button size="small" onClick={() => setEditing(r)}>Düzenle</Button><Button size="small" onClick={async () => { await (r.status === 'Kapatıldı' ? reopenFindingApi(r.id) : closeFindingApi(r.id)); refresh(); }}>{r.status === 'Kapatıldı' ? 'Aç' : 'Kapat'}</Button><Button size="small" color="error" onClick={async () => { await deleteFinding(r.id); refresh(); }}>Sil</Button></Stack>} />
+const emptyFilters = { search: '', severity: '', status: '', related_unit: '', related_person: '', due_state: '', source: '' };
+
+function StatusChip({ status }) { return <Chip size="small" label={status || '-'} color={status === 'Kapatıldı' ? 'success' : 'default'} sx={{ bgcolor: status === 'Kapatıldı' ? '#dcfce7' : '#e0f2fe', color: status === 'Kapatıldı' ? '#166534' : '#075985', fontWeight: 800 }} />; }
+
+function FindingsPage({ summary, refresh, show }) {
+  const [detail, setDetail] = useState(null); const [editing, setEditing] = useState(null); const [rows, setRows] = useState([]); const [options, setOptions] = useState({ related_units: [], related_people: [], sources: [], severities, statuses }); const [filters, setFilters] = useState(emptyFilters); const [page, setPage] = useState(0); const [rowsPerPage, setRowsPerPage] = useState(25);
+  const readFilters = () => { const params = new URLSearchParams(window.location.search); return { ...emptyFilters, ...Object.fromEntries(Object.keys(emptyFilters).map((key) => [key, params.get(key) || ''])) }; };
+  const writeFilters = (next) => { const params = new URLSearchParams(); Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); }); window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`); };
+  const load = async (next = filters) => { try { const [data, opts] = await Promise.all([getFindings(next), getFindingFilterOptions()]); setRows(data); setOptions(opts); } catch (e) { show(e.message, 'error'); } };
+  useEffect(() => { const initial = readFilters(); setFilters(initial); load(initial); }, []);
+  const setFilter = (key, value) => { const next = { ...filters, [key]: value }; setFilters(next); setPage(0); writeFilters(next); load(next); };
+  const clearFilters = () => { setFilters(emptyFilters); setPage(0); writeFilters(emptyFilters); load(emptyFilters); };
+  const reloadAll = () => { load(filters); refresh(); };
+  const saveEdit = async (payload) => { try { await updateFinding(editing.id, payload); setEditing(null); show('Bulgu güncellendi.', 'success'); reloadAll(); } catch (e) { show(e.message, 'error'); } };
+  const miniCards = [
+    ['Toplam Bulgu', summary?.total || 0], ['Açık Kalan', summary?.open || 0], ['Kapatılan', summary?.closed || 0], ['Kritik', summary?.severity_counts?.Kritik || 0], ['Yüksek', summary?.severity_counts?.Yüksek || 0], ['Geciken', summary?.overdue || summary?.delayed || 0], ['Termin Yaklaşan', summary?.due_soon || 0],
+  ];
+  const visible = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  return <Stack spacing={2.25}><SectionHeader title="Bulgular" description="İç bulgu kayıtları, durum, sorumlu kişi ve aksiyon takibi." />
+    <Grid container spacing={1.25}>{miniCards.map(([label, value]) => <Grid item xs={6} md={3} lg={12 / 7} key={label}><Paper sx={{ p: 1.25, border: '1px solid rgba(15,47,87,.08)' }}><Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography><Typography variant="h6" fontWeight={900}>{value}</Typography></Paper></Grid>)}</Grid>
+    <Paper sx={{ p: 2, border: '1px solid rgba(15,47,87,.08)' }}><Grid container spacing={1.5} alignItems="center"><Grid item xs={12} md={3}><TextField size="small" fullWidth label="Arama" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} placeholder="Başlık, kayıt no, açıklama..." /></Grid>{[
+      ['severity', 'Durum Seviyesi', options.severities || severities], ['status', 'Durum', options.statuses || statuses], ['related_unit', 'İlgili Birim / Kurum', options.related_units || []], ['related_person', 'İlgili Kişi', options.related_people || []], ['due_state', 'Termin Durumu', ['Geciken', 'Termin Yaklaşan', 'Terminsiz']], ['source', 'Kaynak', options.sources || ['Manuel', 'Excel', 'MSRC', 'Defender']],
+    ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearFilters}>Filtreleri Temizle</Button></Grid></Grid></Paper>
+    <Paper sx={{ border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden' }}><TableContainer><Table size="small" sx={{ '& th': { bgcolor: '#f8fafc', fontWeight: 900, whiteSpace: 'nowrap' }, '& td': { py: .85 }, '& tbody tr:hover': { bgcolor: '#eef6ff' } }}><TableHead><TableRow>{['Kayıt No', 'Başlık', 'Seviye', 'Birim', 'İlgili Kişi', 'Durum', 'Termin', 'Termin Değişim Sayısı', 'Son Güncelleme', 'İşlem'].map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead><TableBody>{visible.length ? visible.map((r) => <TableRow key={r.id} sx={{ bgcolor: isOverdue(r) ? '#fff1f2' : isDueSoon(r) ? '#fffbeb' : r.status === 'Kapatıldı' ? '#f0fdf4' : 'inherit' }}><TableCell>{r.record_no}</TableCell><TableCell sx={{ maxWidth: 280 }}><Tooltip title={r.title || ''}><Typography noWrap fontWeight={700}>{r.title || '-'}</Typography></Tooltip></TableCell><TableCell><SeverityChip severity={r.severity} /></TableCell><TableCell>{r.related_unit || '-'}</TableCell><TableCell>{r.related_person || '-'}</TableCell><TableCell><StatusChip status={r.status} /></TableCell><TableCell>{formatDay(r.active_due_date)}</TableCell><TableCell>{r.due_date_change_count ?? 0}</TableCell><TableCell>{formatDate(r.updated_at)}</TableCell><TableCell><Stack direction="row" spacing={.5}><Button size="small" onClick={() => setDetail(r)}>Detay</Button><Button size="small" onClick={() => setEditing(r)}>Düzenle</Button><Button size="small" onClick={async () => { await (r.status === 'Kapatıldı' ? reopenFindingApi(r.id) : closeFindingApi(r.id)); reloadAll(); }}>{r.status === 'Kapatıldı' ? 'Aç' : 'Kapat'}</Button><Button size="small" color="error" onClick={async () => { await deleteFinding(r.id); reloadAll(); }}>Sil</Button></Stack></TableCell></TableRow>) : <TableRow><TableCell colSpan={10}>Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer><TablePagination component="div" count={rows.length} page={page} onPageChange={(_, next) => setPage(next)} rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} rowsPerPageOptions={[10, 25, 50, 100]} labelRowsPerPage="Sayfa başına" /></Paper>
     <FindingDetail finding={detail} onClose={() => setDetail(null)} show={show} />
-    <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} maxWidth="md" fullWidth><DialogTitle>Bulgu Düzenle</DialogTitle><DialogContent dividers>{editing && <FindingForm initial={editing} onSubmit={saveEdit} submitLabel="Güncelle" />}</DialogContent><DialogActions><Button onClick={() => setEditing(null)}>Vazgeç</Button></DialogActions></Dialog></>;
+    <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} maxWidth="md" fullWidth><DialogTitle>Bulgu Düzenle</DialogTitle><DialogContent dividers>{editing && <FindingForm initial={editing} onSubmit={saveEdit} submitLabel="Güncelle" />}</DialogContent><DialogActions><Button onClick={() => setEditing(null)}>Vazgeç</Button></DialogActions></Dialog></Stack>;
 }
 
 function FindingDetail({ finding, onClose, show }) {
   const [actions, setActions] = useState([]);
   useEffect(() => { if (finding) getActions(finding.id).then(setActions).catch((e) => show(e.message, 'error')); }, [finding?.id]);
-  return <Dialog open={Boolean(finding)} onClose={onClose} maxWidth="md" fullWidth><DialogTitle>{finding?.record_no} Detayı</DialogTitle><DialogContent dividers><Stack spacing={2}><Typography variant="h6">{finding?.title}</Typography><Typography>{finding?.description}</Typography><DataTable title="Aksiyon Geçmişi" rows={actions} columns={[{ key: 'created_at', label: 'Tarih', render: (r) => formatDate(r.created_at) }, { key: 'action_type', label: 'Tip' }, { key: 'note', label: 'Not' }, { key: 'created_by', label: 'Kullanıcı' }]} /></Stack></DialogContent><DialogActions><Button onClick={onClose}>Kapat</Button></DialogActions></Dialog>;
+  return <Dialog open={Boolean(finding)} onClose={onClose} maxWidth="md" fullWidth><DialogTitle>{finding?.record_no} Detayı</DialogTitle><DialogContent dividers><Stack spacing={2}><Typography variant="h6">{finding?.title}</Typography><Typography>{finding?.description}</Typography><DataTable title="Aksiyon Geçmişi" rows={actions} columns={[{ key: 'created_at', label: 'Tarih', render: (r) => formatDate(r.created_at) }, { key: 'action_type', label: 'Tip' }, { key: 'old_value', label: 'Eski Değer' }, { key: 'new_value', label: 'Yeni Değer' }, { key: 'note', label: 'Not' }, { key: 'created_by', label: 'Kullanıcı' }]} /></Stack></DialogContent><DialogActions><Button onClick={onClose}>Kapat</Button></DialogActions></Dialog>;
 }
 
-function ExcelImportPage({ onImported, show }) {
-  const [file, setFile] = useState(null); const [preview, setPreview] = useState(null);
-  return <Paper sx={{ p: 3 }}><SectionHeader title="Excel ile Bulgu Ekle" description="Mevcut import/export yapısını kullanarak Bulgular sayfasını içe aktarın." /><Stack direction="row" spacing={2} alignItems="center"><Button variant="outlined" component="label">Dosya Seç<input hidden type="file" accept=".xlsx,.xlsm" onChange={(e) => setFile(e.target.files?.[0])} /></Button><Typography>{file?.name || 'Dosya seçilmedi'}</Typography><Button disabled={!file} onClick={async () => { try { setPreview(await previewExcel(file)); } catch (e) { show(e.message, 'error'); } }}>Önizle</Button><Button variant="contained" disabled={!file} onClick={async () => { try { onImported(await importExcel(file)); } catch (e) { show(e.message, 'error'); } }}>İçe Aktar</Button></Stack>{preview && <Alert sx={{ mt: 2 }} severity="info">{preview.total} kayıt önizlendi, {preview.failed} hata.</Alert>}</Paper>;
+function ExcelImportPanel({ onImported, show }) {
+  const [file, setFile] = useState(null); const [preview, setPreview] = useState(null); const [result, setResult] = useState(null);
+  return <Stack spacing={2}><Alert severity="info">Import şablonu kullanıcıdaki import.xlsx yapısıyla uyumludur. Örnek satırları içe aktarmadan önce silebilirsiniz.</Alert><Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap"><Button variant="outlined" component="label">Excel Dosyası Seç<input hidden type="file" accept=".xlsx,.xlsm" onChange={(e) => { setFile(e.target.files?.[0]); setPreview(null); setResult(null); }} /></Button><Typography>{file?.name || 'Dosya seçilmedi'}</Typography><Button disabled={!file} onClick={async () => { try { setPreview(await previewExcel(file)); } catch (e) { show(e.message, 'error'); } }}>Önizle</Button><Button variant="contained" disabled={!file} onClick={async () => { try { const r = await importExcel(file); setResult(r); onImported(r); } catch (e) { show(e.message, 'error'); } }}>İçe Aktar</Button><Button variant="outlined" href={importTemplateUrl()}>Örnek Import Şablonu İndir</Button></Stack>{preview && <Alert severity={preview.failed ? 'warning' : 'info'}>{preview.total} kayıt önizlendi, {preview.failed} hatalı satır.</Alert>}{result && <Grid container spacing={1.5}>{[['Eklenen', result.created], ['Güncellenen', result.updated], ['Hatalı', result.failed]].map(([label, value]) => <Grid item xs={12} md={4} key={label}><SummaryCard label={label} value={value} /></Grid>)}</Grid>}{(preview?.errors?.length || result?.errors?.length) ? <DataTable title="Hatalı Satırlar" rows={(result?.errors || preview?.errors || []).map((x, i) => ({ id: i, ...x }))} columns={[{ key: 'row', label: 'Satır' }, { key: 'message', label: 'Hata' }]} /> : null}</Stack>;
+}
+
+function AddFindingPage({ onSave, onImported, show }) {
+  const [tab, setTab] = useState(0);
+  return <Paper sx={{ p: 3 }}><SectionHeader title="Bulgu Ekle" description="Manuel kayıt veya Excel ile toplu bulgu ekleme." /><Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}><Tab label="Manuel Bulgu Ekle" /><Tab label="Excel ile Toplu Bulgu Ekle" /></Tabs>{tab === 0 ? <FindingForm onSubmit={onSave} /> : <ExcelImportPanel show={show} onImported={onImported} />}</Paper>;
 }
 
 function MsrcPage() { return <Paper sx={{ p: 3 }}><SectionHeader title="Microsoft CVE / MSRC" description="Mevcut MSRC entegrasyonu korunmuştur. Defender eşleştirmeleri CVE ID üzerinden Defender detay ekranında gösterilir." /><Alert severity="info">Bu aşama Defender Vulnerability Management entegrasyonudur; MSRC ekranı mevcut yapıyı bozmamak için ayrı tutuldu.</Alert></Paper>; }
@@ -126,16 +158,17 @@ function App() {
   const [tab, setTab] = useState(0); const [summary, setSummary] = useState(null); const [findings, setFindings] = useState([]); const [message, setMessage] = useState(''); const [severity, setSeverity] = useState('info');
   const show = (text, sev = 'info') => { setMessage(text); setSeverity(sev); };
   const refresh = async () => { try { const [dashboard, rows] = await Promise.all([getDashboard(), getFindings()]); setSummary(dashboard); setFindings(rows); } catch (e) { show(e.message, 'error'); } };
-  useEffect(() => { refresh(); }, []);
+  useEffect(() => { refresh(); if (window.location.search) setTab(1); }, []);
   const saveNew = async (payload) => { try { await createFinding(payload); show('Bulgu başarıyla kaydedildi.', 'success'); setTab(1); refresh(); } catch (e) { show(e.message, 'error'); } };
+  const goFindings = (filters = {}) => { const params = new URLSearchParams(); Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); }); window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`); setTab(1); };
+  const imported = (r) => { show(`İçe aktarma tamamlandı: ${r.created} yeni, ${r.updated} güncellendi, ${r.failed} hatalı`, r.failed ? 'warning' : 'success'); refresh(); };
   const content = () => {
-    if (tab === 0) return <Dashboard summary={summary} />;
-    if (tab === 1) return <FindingsPage findings={findings} refresh={refresh} show={show} />;
-    if (tab === 2) return <Paper sx={{ p: 3 }}><SectionHeader title="Bulgu Ekle" description="Yeni güvenlik bulgusunu arka uç API üzerinden kaydedin." /><FindingForm onSubmit={saveNew} /></Paper>;
-    if (tab === 3) return <ExcelImportPage show={show} onImported={(r) => { show(`İçe aktarma tamamlandı: ${r.created} yeni, ${r.updated} güncellendi, ${r.failed} hatalı`, r.failed ? 'warning' : 'success'); refresh(); }} />;
-    if (tab === 4) return <MsrcPage />;
-    if (tab === 5) return <DefenderPage show={show} refreshApp={refresh} />;
-    if (tab === 6) return <Reports findings={findings} />;
+    if (tab === 0) return <Dashboard summary={summary} onFindingsFilter={goFindings} />;
+    if (tab === 1) return <FindingsPage summary={summary} refresh={refresh} show={show} />;
+    if (tab === 2) return <AddFindingPage onSave={saveNew} onImported={imported} show={show} />;
+    if (tab === 3) return <MsrcPage />;
+    if (tab === 4) return <DefenderPage show={show} refreshApp={refresh} />;
+    if (tab === 5) return <Reports findings={findings} />;
     return <SettingsPage show={show} />;
   };
   return <ThemeProvider theme={theme}><CssBaseline /><Box sx={{ bgcolor: 'background.default', display: 'flex', minHeight: '100vh' }}><AppBar position="fixed" sx={{ zIndex: (muiTheme) => muiTheme.zIndex.drawer + 1 }}><Toolbar sx={{ gap: 2, minHeight: 72 }}><BrandLogo height={40} /><Box sx={{ flexGrow: 1 }}><Typography variant="h6" noWrap>Siber Risk ve Bulgu Yönetimi</Typography></Box><Button color="inherit" href={exportUrl()} variant="contained" sx={{ bgcolor: 'rgba(255,255,255,.15)' }}>Excel Dışa Aktar</Button></Toolbar></AppBar><Drawer variant="permanent" sx={{ width: DRAWER_WIDTH, flexShrink: 0, [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: 'border-box', bgcolor: '#fff', borderRight: '1px solid rgba(15, 47, 87, 0.10)' } }}><Toolbar sx={{ minHeight: 88, justifyContent: 'center', px: 3 }}><BrandLogo height={40} /></Toolbar><Divider /><Box sx={{ p: 2 }}><Typography variant="caption" color="text.secondary" fontWeight={800} sx={{ display: 'block', textAlign: 'center', letterSpacing: .8 }}>MENÜ</Typography><List sx={{ mt: 1.5 }}>{navigationItems.map((item, index) => <ListItemButton key={item} selected={tab === index} onClick={() => setTab(index)} sx={{ borderRadius: 2.5, mb: 1, minHeight: 52, py: 1.05, px: 2, justifyContent: 'center', textAlign: 'center', '&.Mui-selected': { bgcolor: 'primary.main', color: 'primary.contrastText', boxShadow: '0 10px 22px rgba(15, 47, 87, .20)', '&:hover': { bgcolor: 'primary.dark' } } }}><ListItemText primary={item} secondary={index === 1 ? `${findings.length} kayıt` : index === 0 ? 'Genel görünüm' : null} sx={{ m: 0, textAlign: 'center' }} primaryTypographyProps={{ fontWeight: 800, textAlign: 'center' }} secondaryTypographyProps={{ textAlign: 'center', fontSize: 12, color: tab === index ? 'rgba(255,255,255,.78)' : 'text.secondary' }} /></ListItemButton>)}</List></Box></Drawer><Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}><Toolbar sx={{ minHeight: 72 }} /><Container maxWidth="xl" sx={{ py: 3.5 }}>{content()}</Container></Box><Snackbar open={Boolean(message)} autoHideDuration={6000} onClose={() => setMessage('')}><Alert severity={severity} onClose={() => setMessage('')}>{message}</Alert></Snackbar></Box></ThemeProvider>;

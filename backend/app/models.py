@@ -39,6 +39,10 @@ class Finding(Base):
 
     actions: Mapped[list["FindingAction"]] = relationship("FindingAction", back_populates="finding", cascade="all, delete-orphan")
 
+    @property
+    def due_date_change_count(self) -> int:
+        return len([action for action in self.actions if action.action_type == "due_date_changed"])
+
 
 class FindingAction(Base):
     __tablename__ = "finding_actions"
