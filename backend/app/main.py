@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 from .database import Base, engine, get_db
 from .services.defender_auth_service import DefenderAuthError
 from .services.defender_service import DEFAULT_DEFENDER_API_BASE_URL, DefenderApiError, DefenderService
-from .excel import build_defender_export, build_export, build_import_template, import_findings, preview_findings
-from .models import AuditLog, DefenderMachineVulnerability, DefenderRecommendation, DefenderSettings, DefenderSyncLog, DefenderVulnerability, Finding, FindingAction, SEVERITIES, STATUS_CLOSED, STATUS_OPEN, STATUSES, SystemLog
+from .services.msrc_service import MsrcApiError, fetch_msrc_cvrf, normalize_msrc_items, parse_msrc_cvrf
+from .excel import build_defender_export, build_export, build_import_template, build_msrc_export, import_findings, preview_findings
+from .models import AuditLog, DefenderMachineVulnerability, DefenderRecommendation, DefenderSettings, DefenderSyncLog, DefenderVulnerability, Finding, FindingAction, MsrcVulnerability, SEVERITIES, STATUS_CLOSED, STATUS_OPEN, STATUSES, SystemLog
 from .schemas import ActionCreate, AuditLogOut, BulkIds, BulkUpdate, DefenderSettingsIn, FindingActionOut, FindingCreate, FindingOut, FindingUpdate, SystemLogOut
 
 
@@ -926,6 +927,210 @@ def export_defender_excel(db: Session = Depends(get_db), current_actor: str = De
     db.commit()
     filename = f"defender-zafiyet-raporu-{datetime.now().strftime('%Y%m%d-%H%M')}.xlsx"
     return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+MSRC_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def msrc_months(count: int = 12, start: date | None = None) -> list[str]:
+    current = start or date.today()
+    year = current.year
+    month_index = current.month - 1
+    result: list[str] = []
+    for _ in range(count):
+        result.append(f"{year}-{MSRC_MONTH_NAMES[month_index]}")
+        month_index -= 1
+        if month_index < 0:
+            month_index = 11
+            year -= 1
+    return result
+
+
+def msrc_bool(value: Any) -> bool:
+    return bool(int(value or 0))
+
+
+def serialize_msrc(row: MsrcVulnerability) -> dict[str, Any]:
+    data = serialize_model(row)
+    data["publicly_disclosed"] = msrc_bool(data.get("publicly_disclosed"))
+    data["exploited"] = msrc_bool(data.get("exploited"))
+    if isinstance(row.release_date, date):
+        data["release_date"] = row.release_date.isoformat()
+    return data
+
+
+def msrc_filtered_query(
+    db: Session,
+    severity: str | None = None,
+    cve: str | None = None,
+    product: str | None = None,
+    kb: str | None = None,
+    month: str | None = None,
+    search: str | None = None,
+    exploited: bool | None = None,
+    publicly_disclosed: bool | None = None,
+) -> Any:
+    query = db.query(MsrcVulnerability)
+    if severity:
+        query = query.filter(MsrcVulnerability.severity.ilike(f"%{severity}%"))
+    if cve:
+        query = query.filter(MsrcVulnerability.cve_id.ilike(f"%{cve}%"))
+    if product:
+        query = query.filter(MsrcVulnerability.product.ilike(f"%{product}%"))
+    if kb:
+        query = query.filter(MsrcVulnerability.kb_article.ilike(f"%{kb}%"))
+    if month:
+        query = query.filter(MsrcVulnerability.release_month == month)
+    if exploited is not None:
+        query = query.filter(MsrcVulnerability.exploited == int(exploited))
+    if publicly_disclosed is not None:
+        query = query.filter(MsrcVulnerability.publicly_disclosed == int(publicly_disclosed))
+    if search:
+        like = f"%{search}%"
+        query = query.filter(or_(MsrcVulnerability.cve_id.ilike(like), MsrcVulnerability.title.ilike(like), MsrcVulnerability.product.ilike(like), MsrcVulnerability.kb_article.ilike(like), MsrcVulnerability.impact.ilike(like)))
+    return query
+
+
+def msrc_summary_payload(rows: list[MsrcVulnerability]) -> dict[str, Any]:
+    cves = {row.cve_id for row in rows if row.cve_id}
+    def sev_count(*names: str) -> int:
+        lowered = tuple(name.lower() for name in names)
+        return len({row.cve_id for row in rows if any(name in (row.severity or row.max_severity or "").lower() for name in lowered)})
+    return {
+        "total_records": len(rows),
+        "total_cve": len(cves),
+        "critical": sev_count("critical", "kritik"),
+        "high_important": sev_count("important", "high", "yüksek"),
+        "moderate": sev_count("moderate", "medium", "orta"),
+        "low": sev_count("low", "düşük"),
+        "exploited": len({row.cve_id for row in rows if row.exploited}),
+        "publicly_disclosed": len({row.cve_id for row in rows if row.publicly_disclosed}),
+        "kb_count": len({row.kb_article for row in rows if row.kb_article}),
+    }
+
+
+@api.get("/msrc/months")
+def list_msrc_months() -> dict[str, Any]:
+    return {"items": msrc_months(), "default": msrc_months(1)[0]}
+
+
+@api.get("/msrc/sync")
+def sync_msrc(month: str = Query(..., description="Örnek: 2026-May"), db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> dict[str, Any]:
+    try:
+        raw = fetch_msrc_cvrf(month)
+        parsed = parse_msrc_cvrf(raw)
+        parsed["month"] = month
+        items = normalize_msrc_items(parsed)
+    except MsrcApiError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if not items:
+        add_system_log(db, "msrc_sync_empty", "MSRC verisi boş döndü", {"month": month}, current_actor)
+        db.commit()
+        return {"status": "empty", "message": "MSRC API bu ay için kayıt döndürmedi.", "created": 0, "updated": 0, "total": 0}
+    created = 0
+    updated = 0
+    for item in items:
+        item["release_month"] = item.get("release_month") or month
+        existing = db.query(MsrcVulnerability).filter(
+            MsrcVulnerability.cve_id == (item.get("cve_id") or ""),
+            MsrcVulnerability.product == (item.get("product") or ""),
+            MsrcVulnerability.kb_article == (item.get("kb_article") or ""),
+            MsrcVulnerability.release_month == month,
+        ).one_or_none()
+        payload = {key: (item.get(key) or "") for key in ["cve_id", "title", "severity", "product", "kb_article", "fixed_build", "impact", "max_severity", "release_month", "url", "raw_json"]}
+        payload["release_date"] = item.get("release_date")
+        payload["publicly_disclosed"] = int(bool(item.get("publicly_disclosed")))
+        payload["exploited"] = int(bool(item.get("exploited")))
+        if existing:
+            for key, value in payload.items():
+                setattr(existing, key, value)
+            updated += 1
+        else:
+            db.add(MsrcVulnerability(**payload))
+            created += 1
+    add_system_log(db, "msrc_sync", "MSRC CVRF verisi senkronize edildi", {"month": month, "created": created, "updated": updated}, current_actor)
+    db.commit()
+    return {"status": "success", "message": "MSRC verisi başarıyla senkronize edildi.", "created": created, "updated": updated, "total": created + updated}
+
+
+@api.get("/msrc/vulnerabilities")
+def list_msrc_vulnerabilities(
+    severity: str | None = None,
+    cve: str | None = None,
+    product: str | None = None,
+    kb: str | None = None,
+    month: str | None = None,
+    search: str | None = None,
+    exploited: bool | None = None,
+    publicly_disclosed: bool | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed).order_by(MsrcVulnerability.release_date.desc().nullslast(), MsrcVulnerability.cve_id.asc()).all()
+    return {"items": [serialize_msrc(row) for row in rows], "total": len(rows)}
+
+
+@api.get("/msrc/summary")
+def msrc_summary(
+    severity: str | None = None,
+    cve: str | None = None,
+    product: str | None = None,
+    kb: str | None = None,
+    month: str | None = None,
+    search: str | None = None,
+    exploited: bool | None = None,
+    publicly_disclosed: bool | None = None,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed).all()
+    return msrc_summary_payload(rows)
+
+
+@api.post("/msrc/vulnerabilities/{msrc_id}/convert-to-finding")
+def convert_msrc_vulnerability(msrc_id: int, db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> dict[str, Any]:
+    row = db.query(MsrcVulnerability).filter(MsrcVulnerability.id == msrc_id).one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="MSRC CVE kaydı bulunamadı")
+    duplicate = db.query(Finding).filter(Finding.source == "MSRC", Finding.note.ilike(f"%CVE: {row.cve_id}%")).one_or_none()
+    if duplicate:
+        return {"status": "duplicate", "message": "Bu CVE daha önce bulguya dönüştürülmüş.", "finding": as_out(duplicate)}
+    severity = map_defender_severity(row.severity or row.max_severity)
+    title = " - ".join(part for part in [row.cve_id, row.product, row.title] if part)
+    description = f"MSRC kaydı: {row.cve_id}. Ürün: {row.product or '-'}\nEtki/Açıklama: {row.impact or row.title or '-'}"
+    recommendation = f"İlgili Microsoft güncellemesini uygulayın. KB: {row.kb_article or '-'}; Fixed Build: {row.fixed_build or '-'}; URL: {row.url or '-'}"
+    base = f"MSRC-{row.cve_id}"
+    record_no = base
+    suffix = 1
+    while db.query(Finding).filter(Finding.record_no == record_no).one_or_none():
+        suffix += 1
+        record_no = f"{base}-{suffix}"
+    finding = Finding(record_no=record_no, title=title[:512], severity=severity, impact=row.impact or "", description=description, recommendation=recommendation, related_unit="Sistem", related_person="", status=STATUS_OPEN, due_date=due_for_severity(severity), note=f"MSRC kaynak bilgisi\nCVE: {row.cve_id}\nÜrün: {row.product}\nKB: {row.kb_article}\nMSRC ID: {row.id}", source="MSRC")
+    db.add(finding); db.flush()
+    add_finding_action(db, finding, "created_from_msrc", current_actor, note="MSRC CVE kaydından bulgu oluşturuldu")
+    add_system_log(db, "msrc_convert", "MSRC CVE bulguya dönüştürüldü", {"cve_id": row.cve_id, "record_no": record_no}, current_actor)
+    db.commit(); db.refresh(finding)
+    return {"status": "created", "message": "MSRC CVE bulguya dönüştürüldü.", "finding": as_out(finding)}
+
+
+@api.get("/msrc/export/excel")
+def export_msrc_excel(
+    severity: str | None = None,
+    cve: str | None = None,
+    product: str | None = None,
+    kb: str | None = None,
+    month: str | None = None,
+    search: str | None = None,
+    exploited: bool | None = None,
+    publicly_disclosed: bool | None = None,
+    db: Session = Depends(get_db),
+    current_actor: str = Depends(actor),
+) -> StreamingResponse:
+    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed).order_by(MsrcVulnerability.cve_id.asc()).all()
+    items = [serialize_msrc(row) for row in rows]
+    content = build_msrc_export(msrc_summary_payload(rows), items)
+    add_system_log(db, "msrc_export", "MSRC Excel listesi dışa aktarıldı", {"count": len(items), "month": month}, current_actor)
+    db.commit()
+    filename_month = month or datetime.now().strftime("%Y-%b")
+    return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="msrc-cve-listesi-{filename_month}.xlsx"'})
 
 
 # Backward-compatible routes.

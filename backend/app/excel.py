@@ -460,3 +460,46 @@ def build_defender_export(summary: dict[str, Any], vulnerabilities: list[dict[st
     stream = BytesIO()
     workbook.save(stream)
     return stream.getvalue()
+
+
+def build_msrc_export(summary: dict[str, Any], vulnerabilities: list[dict[str, Any]]) -> bytes:
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "MSRC_Ozet"
+    vuln_sheet = workbook.create_sheet("MSRC_CVE_Listesi")
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(color="FFFFFF", bold=True)
+
+    summary_rows = [
+        ["Metrik", "Değer"],
+        ["Toplam CVE", summary.get("total_cve", 0)],
+        ["Critical", summary.get("critical", 0)],
+        ["High / Important", summary.get("high_important", 0)],
+        ["Medium / Moderate", summary.get("moderate", 0)],
+        ["Low", summary.get("low", 0)],
+        ["Exploited", summary.get("exploited", 0)],
+        ["Publicly Disclosed", summary.get("publicly_disclosed", 0)],
+        ["KB Sayısı", summary.get("kb_count", 0)],
+    ]
+    for row in summary_rows:
+        summary_sheet.append(row)
+    for cell in summary_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+
+    headers = ["cve_id", "title", "severity", "product", "kb_article", "fixed_build", "impact", "max_severity", "exploited", "publicly_disclosed", "release_month", "release_date", "url"]
+    vuln_sheet.append(headers)
+    for cell in vuln_sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    for row in vulnerabilities:
+        vuln_sheet.append([excel_value(row.get(header)) for header in headers])
+
+    for sheet in (summary_sheet, vuln_sheet):
+        for column_cells in sheet.columns:
+            max_length = max(len(str(cell.value or "")) for cell in column_cells)
+            sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 70)
+        sheet.freeze_panes = "A2"
+    stream = BytesIO()
+    workbook.save(stream)
+    return stream.getvalue()

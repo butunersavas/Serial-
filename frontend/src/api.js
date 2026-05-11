@@ -95,3 +95,22 @@ export const getDefenderRecommendations = (filters = {}) => {
 export const convertDefenderCve = (cveId) => request(`/defender/vulnerabilities/${encodeURIComponent(cveId)}/convert-to-finding`, { method: 'POST', body: JSON.stringify({}) });
 export const convertDefenderMachine = (payload) => request('/defender/machines-vulnerabilities/convert-to-finding', { method: 'POST', body: JSON.stringify(payload) });
 export const defenderExportUrl = () => `${API_BASE_URL}/defender/export/excel`;
+
+export const getMsrcMonths = () => request('/msrc/months');
+export const syncMsrcMonth = (month) => request(`/msrc/sync?month=${encodeURIComponent(month)}`);
+export const getMsrcSummary = (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return request(`/msrc/summary?${params.toString()}`);
+};
+export const getMsrcVulnerabilities = (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return request(`/msrc/vulnerabilities?${params.toString()}`);
+};
+export const convertMsrcVulnerability = (id) => request(`/msrc/vulnerabilities/${encodeURIComponent(id)}/convert-to-finding`, { method: 'POST', body: JSON.stringify({}) });
+export const msrcExportUrl = (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return `${API_BASE_URL}/msrc/export/excel${params.toString() ? `?${params.toString()}` : ''}`;
+};
