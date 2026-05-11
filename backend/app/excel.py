@@ -487,13 +487,30 @@ def build_msrc_export(summary: dict[str, Any], vulnerabilities: list[dict[str, A
         cell.fill = header_fill
         cell.font = header_font
 
-    headers = ["cve_id", "title", "severity", "product", "kb_article", "fixed_build", "impact", "max_severity", "exploited", "publicly_disclosed", "release_month", "release_date", "url"]
-    vuln_sheet.append(headers)
+    columns = [
+        ("cve_id", "CVE"),
+        ("title", "Başlık"),
+        ("severity", "Seviye"),
+        ("product", "Etkilenen Ürün / Uygulama"),
+        ("kb_article", "KB"),
+        ("impact", "Etki"),
+        ("exploited", "İstismar Ediliyor mu?"),
+        ("publicly_disclosed", "Kamuya Açık mı?"),
+        ("release_month", "Yayın Ayı"),
+        ("release_date", "Yayın Tarihi"),
+    ]
+    vuln_sheet.append([label for _, label in columns])
     for cell in vuln_sheet[1]:
         cell.fill = header_fill
         cell.font = header_font
     for row in vulnerabilities:
-        vuln_sheet.append([excel_value(row.get(header)) for header in headers])
+        values = []
+        for key, _ in columns:
+            value = row.get(key)
+            if key in {"exploited", "publicly_disclosed"}:
+                value = "Evet" if value else "Hayır"
+            values.append(excel_value(value))
+        vuln_sheet.append(values)
 
     for sheet in (summary_sheet, vuln_sheet):
         for column_cells in sheet.columns:

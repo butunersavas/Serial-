@@ -974,10 +974,28 @@ def msrc_filtered_query(
     search: str | None = None,
     exploited: bool | None = None,
     publicly_disclosed: bool | None = None,
+    card_filter: str | None = None,
 ) -> Any:
     query = db.query(MsrcVulnerability)
     if severity:
         query = query.filter(MsrcVulnerability.severity.ilike(f"%{severity}%"))
+    if card_filter:
+        normalized = card_filter.lower().strip()
+        severity_text = func.lower(func.coalesce(MsrcVulnerability.severity, MsrcVulnerability.max_severity, ""))
+        if normalized == "critical":
+            query = query.filter(severity_text.like("%critical%"))
+        elif normalized == "high_important":
+            query = query.filter(or_(severity_text.like("%high%"), severity_text.like("%important%")))
+        elif normalized == "moderate":
+            query = query.filter(or_(severity_text.like("%medium%"), severity_text.like("%moderate%")))
+        elif normalized == "low":
+            query = query.filter(severity_text.like("%low%"))
+        elif normalized == "exploited":
+            query = query.filter(MsrcVulnerability.exploited == 1)
+        elif normalized == "publicly_disclosed":
+            query = query.filter(MsrcVulnerability.publicly_disclosed == 1)
+        elif normalized == "kb_count":
+            query = query.filter(MsrcVulnerability.kb_article.isnot(None), MsrcVulnerability.kb_article != "")
     if cve:
         query = query.filter(MsrcVulnerability.cve_id.ilike(f"%{cve}%"))
     if product:
@@ -1104,9 +1122,10 @@ def list_msrc_vulnerabilities(
     search: str | None = None,
     exploited: bool | None = None,
     publicly_disclosed: bool | None = None,
+    card_filter: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed).order_by(MsrcVulnerability.release_date.desc().nullslast(), MsrcVulnerability.cve_id.asc()).all()
+    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed, card_filter).order_by(MsrcVulnerability.release_date.desc().nullslast(), MsrcVulnerability.cve_id.asc()).all()
     return {"items": [serialize_msrc(row) for row in rows], "total": len(rows)}
 
 
@@ -1120,9 +1139,10 @@ def msrc_summary(
     search: str | None = None,
     exploited: bool | None = None,
     publicly_disclosed: bool | None = None,
+    card_filter: str | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed).all()
+    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed, card_filter).all()
     return msrc_summary_payload(rows)
 
 
@@ -1135,8 +1155,17 @@ def convert_msrc_vulnerability(msrc_id: int, db: Session = Depends(get_db), curr
     if duplicate:
         return {"status": "duplicate", "message": "Bu CVE daha önce bulguya dönüştürülmüş.", "finding": as_out(duplicate)}
     severity = map_defender_severity(row.severity or row.max_severity)
-    title = " - ".join(part for part in [row.cve_id, row.product, row.title] if part)
-    description = f"MSRC kaydı: {row.cve_id}. Ürün: {row.product or '-'}\nEtki/Açıklama: {row.impact or row.title or '-'}"
+    product_name = (row.product or "").strip()
+    title = f"{row.cve_id} - {product_name} Zafiyeti" if product_name else f"{row.cve_id} - Microsoft Güvenlik Zafiyeti"
+    description_lines = [
+        f"CVE: {row.cve_id}",
+        f"Etkilenen Ürün / Uygulama: {product_name or '-'}",
+        f"Seviye: {row.severity or row.max_severity or '-'}",
+        f"Etki: {row.impact or row.title or '-'}",
+    ]
+    if row.kb_article:
+        description_lines.append(f"KB: {row.kb_article}")
+    description = "\n".join(description_lines)
     recommendation = f"İlgili Microsoft güncellemesini uygulayın. KB: {row.kb_article or '-'}; Fixed Build: {row.fixed_build or '-'}; URL: {row.url or '-'}"
     base = f"MSRC-{row.cve_id}"
     record_no = base
@@ -1162,10 +1191,11 @@ def export_msrc_excel(
     search: str | None = None,
     exploited: bool | None = None,
     publicly_disclosed: bool | None = None,
+    card_filter: str | None = None,
     db: Session = Depends(get_db),
     current_actor: str = Depends(actor),
 ) -> StreamingResponse:
-    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed).order_by(MsrcVulnerability.cve_id.asc()).all()
+    rows = msrc_filtered_query(db, severity, cve, product, kb, month, search, exploited, publicly_disclosed, card_filter).order_by(MsrcVulnerability.cve_id.asc()).all()
     items = [serialize_msrc(row) for row in rows]
     content = build_msrc_export(msrc_summary_payload(rows), items)
     add_system_log(db, "msrc_export", "MSRC Excel listesi dışa aktarıldı", {"count": len(items), "month": month}, current_actor)
