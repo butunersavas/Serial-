@@ -16,7 +16,7 @@ import {
 } from './api';
 
 const LOGO_SRC = '/assets/surat-logo.svg';
-const DRAWER_WIDTH = 292;
+const DRAWER_WIDTH = 252;
 const severities = ['Acil', 'Kritik', 'Yüksek', 'Orta', 'Düşük'];
 const statuses = ['Devam Ediyor', 'Kapatıldı'];
 const navigationItems = ['Gösterge Paneli', 'Bulgular', 'Bulgu Ekle', 'Microsoft CVE / MSRC', 'Defender Zafiyetleri', 'Raporlar', 'Ayarlar'];
@@ -42,10 +42,13 @@ function Dashboard({ summary, onFindingsFilter }) {
     ['Toplam Bulgu', d.total, 'Tüm kayıtlar', 'primary.main', {}],
     ['Açık Kalan', d.open, 'Kapatılmamış kayıtlar', '#64748b', { status: 'Devam Ediyor' }],
     ['Kapatılan', d.closed, 'Tamamlanan kayıtlar', '#16a34a', { status: 'Kapatıldı' }],
+    ['Acil', d.severity_counts?.Acil || 0, 'Acil seviye', severityColors.Acil, { severity: 'Acil' }],
     ['Kritik', d.severity_counts?.Kritik || 0, 'Kritik seviye', severityColors.Kritik, { severity: 'Kritik' }],
     ['Yüksek', d.severity_counts?.Yüksek || 0, 'Yüksek seviye', severityColors.Yüksek, { severity: 'Yüksek' }],
-    ['Geciken Bulgular', d.overdue || d.delayed || 0, 'Aktif termini geçmiş', '#dc2626', { due_state: 'Geciken' }],
-    ['Termin Yaklaşan', d.due_soon || 0, '7 gün içinde', '#f59e0b', { due_state: 'Termin Yaklaşan' }],
+    ['Orta', d.severity_counts?.Orta || 0, 'Orta seviye', severityColors.Orta, { severity: 'Orta' }],
+    ['Düşük', d.severity_counts?.Düşük || 0, 'Düşük seviye', severityColors.Düşük, { severity: 'Düşük' }],
+    ['Geciken Bulgular', d.overdue || d.delayed || 0, 'Aktif termini geçmiş', '#dc2626', { due_state: 'overdue' }],
+    ['Termin Yaklaşan', d.due_soon || 0, '7 gün içinde', '#f59e0b', { due_state: 'due_soon' }],
   ];
   return <Stack spacing={3}><SectionHeader title="Gösterge Paneli" description="Bulgular, SLA durumu ve Defender zafiyet özetleri." />
     <Grid container spacing={2}>{cards.map(([label, value, helper, accent, filters]) => <Grid item xs={12} sm={6} md={4} lg={12 / 7} key={label}><SummaryCard label={label} value={value} helper={helper} accent={accent} onClick={() => onFindingsFilter(filters)} /></Grid>)}</Grid>
@@ -73,28 +76,108 @@ const emptyFilters = { search: '', severity: '', status: '', related_unit: '', r
 
 function StatusChip({ status }) { return <Chip size="small" label={status || '-'} color={status === 'Kapatıldı' ? 'success' : 'default'} sx={{ bgcolor: status === 'Kapatıldı' ? '#dcfce7' : '#e0f2fe', color: status === 'Kapatıldı' ? '#166534' : '#075985', fontWeight: 800 }} />; }
 
+function filterValueForUrl(key, value) {
+  if (key === 'due_state') return { Geciken: 'overdue', 'Termin Yaklaşan': 'due_soon', Terminsiz: 'no_due' }[value] || value;
+  return value;
+}
+
+function filterValueFromUrl(key, value) {
+  if (key === 'due_state') return { overdue: 'Geciken', due_soon: 'Termin Yaklaşan', approaching: 'Termin Yaklaşan', no_due: 'Terminsiz' }[value] || value;
+  return value;
+}
+
+function filtersForApi(next) {
+  return { ...next, due_state: filterValueFromUrl('due_state', next.due_state) };
+}
+
+function filterLabel(key, value) {
+  const labels = { search: 'Arama', severity: 'Seviye', status: 'Durum', related_unit: 'Birim', related_person: 'İlgili Kişi', due_state: 'Termin', source: 'Kaynak' };
+  return `${labels[key] || key}: ${value}`;
+}
+
+function isSameFilter(a, b) {
+  return Object.keys(emptyFilters).every((key) => (a[key] || '') === (b[key] || ''));
+}
+
 function FindingsPage({ summary, refresh, show }) {
-  const [detail, setDetail] = useState(null); const [editing, setEditing] = useState(null); const [rows, setRows] = useState([]); const [options, setOptions] = useState({ related_units: [], related_people: [], sources: [], severities, statuses }); const [filters, setFilters] = useState(emptyFilters); const [page, setPage] = useState(0); const [rowsPerPage, setRowsPerPage] = useState(25);
-  const readFilters = () => { const params = new URLSearchParams(window.location.search); return { ...emptyFilters, ...Object.fromEntries(Object.keys(emptyFilters).map((key) => [key, params.get(key) || ''])) }; };
-  const writeFilters = (next) => { const params = new URLSearchParams(); Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, value); }); window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`); };
-  const load = async (next = filters) => { try { const [data, opts] = await Promise.all([getFindings(next), getFindingFilterOptions()]); setRows(data); setOptions(opts); } catch (e) { show(e.message, 'error'); } };
+  const [detail, setDetail] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [rows, setRows] = useState([]);
+  const [options, setOptions] = useState({ related_units: [], related_people: [], sources: [], severities, statuses });
+  const [filters, setFilters] = useState(emptyFilters);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  const readFilters = () => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      ...emptyFilters,
+      ...Object.fromEntries(Object.keys(emptyFilters).map((key) => [key, filterValueFromUrl(key, params.get(key) || '')])),
+    };
+  };
+  const writeFilters = (next) => {
+    const params = new URLSearchParams();
+    Object.entries(next).forEach(([key, value]) => { if (value) params.set(key, filterValueForUrl(key, value)); });
+    window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`);
+  };
+  const load = async (next = filters) => {
+    try {
+      const [data, opts] = await Promise.all([getFindings(filtersForApi(next)), getFindingFilterOptions()]);
+      setRows(data);
+      setOptions(opts);
+    } catch (e) {
+      show(e.message, 'error');
+    }
+  };
   useEffect(() => { const initial = readFilters(); setFilters(initial); load(initial); }, []);
-  const setFilter = (key, value) => { const next = { ...filters, [key]: value }; setFilters(next); setPage(0); writeFilters(next); load(next); };
-  const clearFilters = () => { setFilters(emptyFilters); setPage(0); writeFilters(emptyFilters); load(emptyFilters); };
+
+  const applyFilters = (next) => {
+    setFilters(next);
+    setPage(0);
+    writeFilters(next);
+    load(next);
+  };
+  const setFilter = (key, value) => applyFilters({ ...filters, [key]: value });
+  const clearFilters = () => applyFilters(emptyFilters);
   const reloadAll = () => { load(filters); refresh(); };
   const saveEdit = async (payload) => { try { await updateFinding(editing.id, payload); setEditing(null); show('Bulgu güncellendi.', 'success'); reloadAll(); } catch (e) { show(e.message, 'error'); } };
+
   const miniCards = [
-    ['Toplam Bulgu', summary?.total || 0], ['Açık Kalan', summary?.open || 0], ['Kapatılan', summary?.closed || 0], ['Kritik', summary?.severity_counts?.Kritik || 0], ['Yüksek', summary?.severity_counts?.Yüksek || 0], ['Geciken', summary?.overdue || summary?.delayed || 0], ['Termin Yaklaşan', summary?.due_soon || 0],
+    ['Toplam Bulgu', summary?.total || 0, {}, 'primary.main'],
+    ['Açık Kalan', summary?.open || 0, { status: 'Devam Ediyor' }, '#64748b'],
+    ['Kapatılan', summary?.closed || 0, { status: 'Kapatıldı' }, '#16a34a'],
+    ['Kritik', summary?.severity_counts?.Kritik || 0, { severity: 'Kritik' }, severityColors.Kritik],
+    ['Yüksek', summary?.severity_counts?.Yüksek || 0, { severity: 'Yüksek' }, severityColors.Yüksek],
+    ['Geciken', summary?.overdue || summary?.delayed || 0, { due_state: 'Geciken' }, '#dc2626'],
+    ['Termin Yaklaşan', summary?.due_soon || 0, { due_state: 'Termin Yaklaşan' }, '#f59e0b'],
   ];
+  const activeFilters = Object.entries(filters).filter(([, value]) => Boolean(value));
   const visible = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  return <Stack spacing={2.25}><SectionHeader title="Bulgular" description="İç bulgu kayıtları, durum, sorumlu kişi ve aksiyon takibi." />
-    <Grid container spacing={1.25}>{miniCards.map(([label, value]) => <Grid item xs={6} md={3} lg={12 / 7} key={label}><Paper sx={{ p: 1.25, border: '1px solid rgba(15,47,87,.08)' }}><Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography><Typography variant="h6" fontWeight={900}>{value}</Typography></Paper></Grid>)}</Grid>
-    <Paper sx={{ p: 2, border: '1px solid rgba(15,47,87,.08)' }}><Grid container spacing={1.5} alignItems="center"><Grid item xs={12} md={3}><TextField size="small" fullWidth label="Arama" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} placeholder="Başlık, kayıt no, açıklama..." /></Grid>{[
+  const actionCellSx = {
+    width: 260,
+    minWidth: 260,
+    maxWidth: 260,
+    position: 'sticky',
+    right: 0,
+    zIndex: 2,
+    bgcolor: '#fff',
+    boxShadow: '-10px 0 18px -18px rgba(15,47,87,.85)',
+  };
+
+  return <Stack spacing={2.25} sx={{ minWidth: 0 }}><SectionHeader title="Bulgular" description="İç bulgu kayıtları, durum, sorumlu kişi ve aksiyon takibi." />
+    <Grid container spacing={1.25}>{miniCards.map(([label, value, cardFilters, accent]) => {
+      const selected = isSameFilter(filters, { ...emptyFilters, ...cardFilters });
+      return <Grid item xs={6} md={3} lg={12 / 7} key={label}><Paper onClick={() => applyFilters({ ...emptyFilters, ...cardFilters })} sx={{ p: 1.25, border: selected ? `2px solid ${accent}` : '1px solid rgba(15,47,87,.08)', cursor: 'pointer', bgcolor: selected ? 'rgba(15,47,87,.06)' : '#fff', transition: 'all .15s ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 3 } }}><Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography><Typography variant="h6" fontWeight={900}>{value}</Typography></Paper></Grid>;
+    })}</Grid>
+    <Paper sx={{ p: 2, border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden' }}><Grid container spacing={1.5} alignItems="center"><Grid item xs={12} md={3}><TextField size="small" fullWidth label="Arama" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} placeholder="Başlık, kayıt no, açıklama..." /></Grid>{[
       ['severity', 'Durum Seviyesi', options.severities || severities], ['status', 'Durum', options.statuses || statuses], ['related_unit', 'İlgili Birim / Kurum', options.related_units || []], ['related_person', 'İlgili Kişi', options.related_people || []], ['due_state', 'Termin Durumu', ['Geciken', 'Termin Yaklaşan', 'Terminsiz']], ['source', 'Kaynak', options.sources || ['Manuel', 'Excel', 'MSRC', 'Defender']],
-    ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearFilters}>Filtreleri Temizle</Button></Grid></Grid></Paper>
-    <Paper sx={{ border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden' }}><TableContainer><Table size="small" sx={{ '& th': { bgcolor: '#f8fafc', fontWeight: 900, whiteSpace: 'nowrap' }, '& td': { py: .85 }, '& tbody tr:hover': { bgcolor: '#eef6ff' } }}><TableHead><TableRow>{['Kayıt No', 'Başlık', 'Seviye', 'Birim', 'İlgili Kişi', 'Durum', 'Termin', 'Termin Değişim Sayısı', 'Son Güncelleme', 'İşlem'].map((h) => <TableCell key={h}>{h}</TableCell>)}</TableRow></TableHead><TableBody>{visible.length ? visible.map((r) => <TableRow key={r.id} sx={{ bgcolor: isOverdue(r) ? '#fff1f2' : isDueSoon(r) ? '#fffbeb' : r.status === 'Kapatıldı' ? '#f0fdf4' : 'inherit' }}><TableCell>{r.record_no}</TableCell><TableCell sx={{ maxWidth: 280 }}><Tooltip title={r.title || ''}><Typography noWrap fontWeight={700}>{r.title || '-'}</Typography></Tooltip></TableCell><TableCell><SeverityChip severity={r.severity} /></TableCell><TableCell>{r.related_unit || '-'}</TableCell><TableCell>{r.related_person || '-'}</TableCell><TableCell><StatusChip status={r.status} /></TableCell><TableCell>{formatDay(r.active_due_date)}</TableCell><TableCell>{r.due_date_change_count ?? 0}</TableCell><TableCell>{formatDate(r.updated_at)}</TableCell><TableCell><Stack direction="row" spacing={.5}><Button size="small" onClick={() => setDetail(r)}>Detay</Button><Button size="small" onClick={() => setEditing(r)}>Düzenle</Button><Button size="small" onClick={async () => { await (r.status === 'Kapatıldı' ? reopenFindingApi(r.id) : closeFindingApi(r.id)); reloadAll(); }}>{r.status === 'Kapatıldı' ? 'Aç' : 'Kapat'}</Button><Button size="small" color="error" onClick={async () => { await deleteFinding(r.id); reloadAll(); }}>Sil</Button></Stack></TableCell></TableRow>) : <TableRow><TableCell colSpan={10}>Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer><TablePagination component="div" count={rows.length} page={page} onPageChange={(_, next) => setPage(next)} rowsPerPage={rowsPerPage} onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }} rowsPerPageOptions={[10, 25, 50, 100]} labelRowsPerPage="Sayfa başına" /></Paper>
+    ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearFilters} variant={activeFilters.length ? 'contained' : 'text'}>Filtreleri Temizle</Button></Grid>{activeFilters.length ? <Grid item xs={12}><Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{activeFilters.map(([key, value]) => <Chip key={key} label={filterLabel(key, value)} onDelete={() => setFilter(key, '')} color="primary" variant="outlined" />)}</Stack></Grid> : null}</Grid></Paper>
+    <Paper sx={{ border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden', maxWidth: '100%' }}><TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}><Table size="small" sx={{ minWidth: 1590, tableLayout: 'fixed', '& th': { bgcolor: '#f8fafc', fontWeight: 900, whiteSpace: 'nowrap' }, '& td': { py: .85, verticalAlign: 'middle' }, '& tbody tr:hover td': { bgcolor: '#eef6ff' }, '& tbody tr:hover td:last-of-type': { bgcolor: '#eef6ff' } }}><TableHead><TableRow>{[
+      ['Kayıt No', 90], ['Başlık', 310], ['Seviye', 100], ['Birim', 180], ['İlgili Kişi', 160], ['Durum', 130], ['Termin', 120], ['Termin Değişim Sayısı', 150], ['Son Güncelleme', 150],
+    ].map(([h, width]) => <TableCell key={h} sx={{ width, minWidth: width }}>{h}</TableCell>)}<TableCell sx={{ ...actionCellSx, zIndex: 4 }}>İşlem</TableCell></TableRow></TableHead><TableBody>{visible.length ? visible.map((r) => <TableRow key={r.id} sx={{ '& td': { bgcolor: isOverdue(r) ? '#fff1f2' : isDueSoon(r) ? '#fffbeb' : r.status === 'Kapatıldı' ? '#f0fdf4' : '#fff' } }}><TableCell sx={{ width: 90 }}>{r.record_no || '-'}</TableCell><TableCell sx={{ width: 310 }}><Tooltip title={r.title || '-'}><Typography noWrap fontWeight={700}>{r.title || '-'}</Typography></Tooltip></TableCell><TableCell sx={{ width: 100 }}><SeverityChip severity={r.severity} /></TableCell><TableCell sx={{ width: 180 }}><Tooltip title={r.related_unit || '-'}><Typography sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.25 }}>{r.related_unit || '-'}</Typography></Tooltip></TableCell><TableCell sx={{ width: 160 }}>{r.related_person || '-'}</TableCell><TableCell sx={{ width: 130 }}><StatusChip status={r.status} /></TableCell><TableCell sx={{ width: 120 }}>{formatDay(r.active_due_date)}</TableCell><TableCell sx={{ width: 150 }}>{r.due_date_change_count ?? 0}</TableCell><TableCell sx={{ width: 150 }}>{formatDate(r.updated_at)}</TableCell><TableCell sx={actionCellSx}><Stack direction="row" spacing={.5} useFlexGap flexWrap="wrap"><Tooltip title="Bulgu detayını göster"><Button size="small" variant="text" onClick={() => setDetail(r)}>Detay</Button></Tooltip><Tooltip title="Bulgu bilgilerini düzenle"><Button size="small" variant="text" onClick={() => setEditing(r)}>Düzenle</Button></Tooltip><Tooltip title={r.status === 'Kapatıldı' ? 'Bulguyu tekrar aç' : 'Bulguyu kapat'}><Button size="small" variant="outlined" onClick={async () => { await (r.status === 'Kapatıldı' ? reopenFindingApi(r.id) : closeFindingApi(r.id)); reloadAll(); }}>{r.status === 'Kapatıldı' ? 'Aç' : 'Kapat'}</Button></Tooltip><Tooltip title="Bulguyu sil"><Button size="small" color="error" variant="contained" onClick={async () => { await deleteFinding(r.id); reloadAll(); }}>Sil</Button></Tooltip></Stack></TableCell></TableRow>) : <TableRow><TableCell colSpan={10} align="center">Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer><TablePagination component="div" count={rows.length} page={page} rowsPerPage={rowsPerPage} onPageChange={(_, p) => setPage(p)} rowsPerPageOptions={[10, 25, 50, 100]} onRowsPerPageChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }} labelRowsPerPage="Sayfa başına" /></Paper>
     <FindingDetail finding={detail} onClose={() => setDetail(null)} show={show} />
-    <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} maxWidth="md" fullWidth><DialogTitle>Bulgu Düzenle</DialogTitle><DialogContent dividers>{editing && <FindingForm initial={editing} onSubmit={saveEdit} submitLabel="Güncelle" />}</DialogContent><DialogActions><Button onClick={() => setEditing(null)}>Vazgeç</Button></DialogActions></Dialog></Stack>;
+    <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} maxWidth="md" fullWidth><DialogTitle>Bulgu Düzenle</DialogTitle><DialogContent dividers>{editing && <FindingForm initial={editing} onSubmit={saveEdit} submitLabel="Güncelle" />}</DialogContent></Dialog>
+  </Stack>;
 }
 
 function FindingDetail({ finding, onClose, show }) {
@@ -110,7 +193,7 @@ function ExcelImportPanel({ onImported, show }) {
 
 function AddFindingPage({ onSave, onImported, show }) {
   const [tab, setTab] = useState(0);
-  return <Paper sx={{ p: 3 }}><SectionHeader title="Bulgu Ekle" description="Manuel kayıt veya Excel ile toplu bulgu ekleme." /><Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}><Tab label="Manuel Bulgu Ekle" /><Tab label="Excel ile Toplu Bulgu Ekle" /></Tabs>{tab === 0 ? <FindingForm onSubmit={onSave} /> : <ExcelImportPanel show={show} onImported={onImported} />}</Paper>;
+  return <Paper sx={{ p: 3 }}><SectionHeader title="Bulgu Ekle" description="Manuel kayıt veya Excel ile toplu bulgu ekleme." /><Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}><Tab label="Manuel Bulgu Ekle" /><Tab label="Excel ile Toplu Bulgu Ekle" /><Tab label="Örnek Import Şablonu İndir" /></Tabs>{tab === 0 ? <FindingForm onSubmit={onSave} /> : tab === 1 ? <ExcelImportPanel show={show} onImported={onImported} /> : <Stack spacing={2}><Alert severity="info">Toplu import için kullanılacak güncel örnek şablonu indirebilirsiniz.</Alert><Button variant="contained" href={importTemplateUrl()}>Örnek Import Şablonu İndir</Button></Stack>}</Paper>;
 }
 
 function MsrcPage() { return <Paper sx={{ p: 3 }}><SectionHeader title="Microsoft CVE / MSRC" description="Mevcut MSRC entegrasyonu korunmuştur. Defender eşleştirmeleri CVE ID üzerinden Defender detay ekranında gösterilir." /><Alert severity="info">Bu aşama Defender Vulnerability Management entegrasyonudur; MSRC ekranı mevcut yapıyı bozmamak için ayrı tutuldu.</Alert></Paper>; }
@@ -171,7 +254,7 @@ function App() {
     if (tab === 5) return <Reports findings={findings} />;
     return <SettingsPage show={show} />;
   };
-  return <ThemeProvider theme={theme}><CssBaseline /><Box sx={{ bgcolor: 'background.default', display: 'flex', minHeight: '100vh' }}><AppBar position="fixed" sx={{ zIndex: (muiTheme) => muiTheme.zIndex.drawer + 1 }}><Toolbar sx={{ gap: 2, minHeight: 72 }}><BrandLogo height={40} /><Box sx={{ flexGrow: 1 }}><Typography variant="h6" noWrap>Siber Risk ve Bulgu Yönetimi</Typography></Box><Button color="inherit" href={exportUrl()} variant="contained" sx={{ bgcolor: 'rgba(255,255,255,.15)' }}>Excel Dışa Aktar</Button></Toolbar></AppBar><Drawer variant="permanent" sx={{ width: DRAWER_WIDTH, flexShrink: 0, [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: 'border-box', bgcolor: '#fff', borderRight: '1px solid rgba(15, 47, 87, 0.10)' } }}><Toolbar sx={{ minHeight: 88, justifyContent: 'center', px: 3 }}><BrandLogo height={40} /></Toolbar><Divider /><Box sx={{ p: 2 }}><Typography variant="caption" color="text.secondary" fontWeight={800} sx={{ display: 'block', textAlign: 'center', letterSpacing: .8 }}>MENÜ</Typography><List sx={{ mt: 1.5 }}>{navigationItems.map((item, index) => <ListItemButton key={item} selected={tab === index} onClick={() => setTab(index)} sx={{ borderRadius: 2.5, mb: 1, minHeight: 52, py: 1.05, px: 2, justifyContent: 'center', textAlign: 'center', '&.Mui-selected': { bgcolor: 'primary.main', color: 'primary.contrastText', boxShadow: '0 10px 22px rgba(15, 47, 87, .20)', '&:hover': { bgcolor: 'primary.dark' } } }}><ListItemText primary={item} secondary={index === 1 ? `${findings.length} kayıt` : index === 0 ? 'Genel görünüm' : null} sx={{ m: 0, textAlign: 'center' }} primaryTypographyProps={{ fontWeight: 800, textAlign: 'center' }} secondaryTypographyProps={{ textAlign: 'center', fontSize: 12, color: tab === index ? 'rgba(255,255,255,.78)' : 'text.secondary' }} /></ListItemButton>)}</List></Box></Drawer><Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}><Toolbar sx={{ minHeight: 72 }} /><Container maxWidth="xl" sx={{ py: 3.5 }}>{content()}</Container></Box><Snackbar open={Boolean(message)} autoHideDuration={6000} onClose={() => setMessage('')}><Alert severity={severity} onClose={() => setMessage('')}>{message}</Alert></Snackbar></Box></ThemeProvider>;
+  return <ThemeProvider theme={theme}><CssBaseline /><Box sx={{ bgcolor: 'background.default', display: 'flex', minHeight: '100vh' }}><AppBar position="fixed" sx={{ zIndex: (muiTheme) => muiTheme.zIndex.drawer + 1 }}><Toolbar sx={{ gap: 2, minHeight: 72 }}><BrandLogo height={40} /><Box sx={{ flexGrow: 1 }}><Typography variant="h6" noWrap>Siber Risk ve Bulgu Yönetimi</Typography></Box><Button color="inherit" href={exportUrl()} variant="contained" sx={{ bgcolor: 'rgba(255,255,255,.15)' }}>Excel Dışa Aktar</Button></Toolbar></AppBar><Drawer variant="permanent" sx={{ width: DRAWER_WIDTH, flexShrink: 0, [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: 'border-box', bgcolor: '#fff', borderRight: '1px solid rgba(15, 47, 87, 0.10)', overflowX: 'hidden' } }}><Toolbar sx={{ minHeight: 76, justifyContent: 'center', px: 2 }}><BrandLogo height={36} /></Toolbar><Divider /><Box sx={{ p: 2 }}><Typography variant="caption" color="text.secondary" fontWeight={800} sx={{ display: 'block', textAlign: 'center', letterSpacing: 1, fontSize: 11, mb: 1 }}>MENÜ</Typography><List disablePadding sx={{ display: 'grid', gap: .75 }}>{navigationItems.map((item, index) => <ListItemButton key={item} selected={tab === index} onClick={() => setTab(index)} sx={{ borderRadius: '18px', minHeight: 48, py: 1, px: 1.75, justifyContent: 'center', alignItems: 'center', textAlign: 'center', '&:hover': { bgcolor: '#f3f6fa' }, '&.Mui-selected': { bgcolor: '#0f2f57', color: 'primary.contrastText', boxShadow: '0 10px 22px rgba(15, 47, 87, .18)', '&:hover': { bgcolor: 'primary.dark' } } }}><ListItemText primary={item} secondary={index === 1 ? `${findings.length} kayıt` : index === 0 ? 'Genel görünüm' : null} sx={{ m: 0, textAlign: 'center' }} primaryTypographyProps={{ fontWeight: 800, textAlign: 'center', fontSize: 14, lineHeight: 1.2 }} secondaryTypographyProps={{ textAlign: 'center', fontSize: 11, lineHeight: 1.2, mt: .25, color: tab === index ? 'rgba(255,255,255,.76)' : 'text.secondary' }} /></ListItemButton>)}</List></Box></Drawer><Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}><Toolbar sx={{ minHeight: 72 }} /><Container maxWidth="xl" sx={{ py: 3.5 }}>{content()}</Container></Box><Snackbar open={Boolean(message)} autoHideDuration={6000} onClose={() => setMessage('')}><Alert severity={severity} onClose={() => setMessage('')}>{message}</Alert></Snackbar></Box></ThemeProvider>;
 }
 
 createRoot(document.getElementById('root')).render(<App />);
