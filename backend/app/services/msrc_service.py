@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import urllib.error
 import urllib.request
@@ -9,6 +10,7 @@ from datetime import date, datetime
 from typing import Any
 
 MSRC_CVRF_BASE_URL = "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf"
+logger = logging.getLogger(__name__)
 MONTH_PATTERN = re.compile(r"^\d{4}-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$")
 
 
@@ -77,11 +79,15 @@ def fetch_msrc_cvrf(month: str) -> dict[str, Any]:
         url,
         headers={"Accept": "application/json, application/xml;q=0.9, */*;q=0.8", "User-Agent": "Risk-Bulgu-MSRC/1.0"},
     )
+    logger.info("MSRC request başladı: month=%s url=%s", month, url)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             content_type = response.headers.get("content-type", "")
+            status_code = getattr(response, "status", response.getcode())
             body = response.read()
-            return {"month": month, "url": url, "content_type": content_type, "body": body.decode("utf-8", "replace")}
+            logger.info("MSRC response status code: %s content_type=%s", status_code, content_type)
+            logger.info("MSRC XML length: %s", len(body))
+            return {"month": month, "url": url, "status_code": status_code, "content_type": content_type, "body": body.decode("utf-8", "replace")}
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
             raise MsrcApiError(f"{month} için MSRC CVRF verisi bulunamadı.") from exc
@@ -101,7 +107,11 @@ def xml_to_dict(element: ET.Element) -> Any:
     data: dict[str, Any] = dict(element.attrib)
     text = (element.text or "").strip()
     if not children:
-        return text or data
+        if data:
+            if text:
+                data["_text"] = text
+            return data
+        return text
     for child in children:
         key = strip_namespace(child.tag)
         value = xml_to_dict(child)
@@ -128,24 +138,37 @@ def parse_msrc_cvrf(raw_data: Any) -> dict[str, Any]:
     raw_text = raw_text.strip()
     if not raw_text:
         return {}
-    try:
-        return json.loads(raw_text)
-    except json.JSONDecodeError:
-        pass
+    if raw_text.startswith("{") or raw_text.startswith("["):
+        try:
+            return json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            raise MsrcApiError(f"MSRC verisi JSON olarak ayrıştırılamadı: {exc}") from exc
     try:
         root = ET.fromstring(raw_text)
-        return {strip_namespace(root.tag): xml_to_dict(root)}
+        parsed = {strip_namespace(root.tag): xml_to_dict(root)}
+        return parsed
     except ET.ParseError as exc:
-        raise MsrcApiError("MSRC verisi JSON/XML olarak ayrıştırılamadı.") from exc
+        raise MsrcApiError(f"MSRC verisi XML olarak ayrıştırılamadı: {exc}") from exc
+    except Exception as exc:
+        raise MsrcApiError(f"MSRC XML parse sırasında beklenmeyen hata: {type(exc).__name__}: {exc}") from exc
+
+
+def document_node(parsed_data: dict[str, Any]) -> dict[str, Any]:
+    for key in ("cvrfdoc", "Document", "CVRFDocument", "Cvrfdoc"):
+        value = parsed_data.get(key)
+        if isinstance(value, dict):
+            return value
+    return parsed_data
 
 
 def product_map_from_tree(parsed_data: dict[str, Any]) -> dict[str, str]:
-    product_tree = parsed_data.get("ProductTree") or parsed_data.get("cvrfdoc", {}).get("ProductTree") or parsed_data.get("Document", {}).get("ProductTree") or {}
+    document = document_node(parsed_data)
+    product_tree = parsed_data.get("ProductTree") or document.get("ProductTree") or {}
     mapping: dict[str, str] = {}
 
     def walk(node: Any) -> None:
         if isinstance(node, dict):
-            pid = first_text(node.get("ProductID") or node.get("ProductId") or node.get("productID"))
+            pid = first_text(node.get("ProductID") or node.get("ProductId") or node.get("productID") or node.get("productid"))
             name = first_text(node.get("Value") or node.get("Name") or node.get("FullProductName") or node.get("_text"))
             if pid and name:
                 mapping[pid] = name
@@ -228,12 +251,17 @@ def remediation_rows(vulnerability: dict[str, Any]) -> list[dict[str, Any]]:
 
 def normalize_msrc_items(parsed_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Normalize CVRF vulnerabilities into one row per CVE/Product/KB/month candidate."""
-    document = parsed_data.get("cvrfdoc") or parsed_data.get("Document") or parsed_data
-    vulnerabilities = document.get("Vulnerability") or document.get("Vulnerabilities") or []
+    try:
+        document = document_node(parsed_data)
+        vulnerabilities = document.get("Vulnerability") or document.get("Vulnerabilities") or []
+    except Exception as exc:
+        raise MsrcApiError(f"MSRC verisi normalize edilemedi: {type(exc).__name__}: {exc}") from exc
     if isinstance(vulnerabilities, dict) and "Vulnerability" in vulnerabilities:
         vulnerabilities = vulnerabilities.get("Vulnerability")
     products = product_map_from_tree(parsed_data)
     month = first_text(parsed_data.get("month"))
+    tracking = document.get("DocumentTracking") if isinstance(document, dict) else {}
+    document_release_date = parse_date((tracking or {}).get("InitialReleaseDate") if isinstance(tracking, dict) else None)
     rows: list[dict[str, Any]] = []
     for vuln in as_list(vulnerabilities):
         if not isinstance(vuln, dict):
@@ -243,7 +271,7 @@ def normalize_msrc_items(parsed_data: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         title = extract_title(vuln)
         description = note_description(vuln)
-        release_date = parse_date(vuln.get("ReleaseDate") or vuln.get("InitialReleaseDate"))
+        release_date = parse_date(vuln.get("ReleaseDate") or vuln.get("InitialReleaseDate")) or document_release_date
         remediations = remediation_rows(vuln) or [{}]
         exploited = False
         publicly_disclosed = False
@@ -282,4 +310,5 @@ def normalize_msrc_items(parsed_data: dict[str, Any]) -> list[dict[str, Any]]:
                     "url": url,
                     "raw_json": json.dumps(vuln, ensure_ascii=False, default=str),
                 })
+    logger.info("parse edilen vulnerability count: %s", len(rows))
     return rows

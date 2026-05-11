@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
@@ -10,6 +11,7 @@ from fastapi import APIRouter, Depends, FastAPI, File, Header, HTTPException, Qu
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, inspect, or_, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .database import Base, engine, get_db
@@ -19,6 +21,9 @@ from .services.msrc_service import MsrcApiError, fetch_msrc_cvrf, normalize_msrc
 from .excel import build_defender_export, build_export, build_import_template, build_msrc_export, import_findings, preview_findings
 from .models import AuditLog, DefenderMachineVulnerability, DefenderRecommendation, DefenderSettings, DefenderSyncLog, DefenderVulnerability, Finding, FindingAction, MsrcVulnerability, SEVERITIES, STATUS_CLOSED, STATUS_OPEN, STATUSES, SystemLog
 from .schemas import ActionCreate, AuditLogOut, BulkIds, BulkUpdate, DefenderSettingsIn, FindingActionOut, FindingCreate, FindingOut, FindingUpdate, SystemLogOut
+
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_schema() -> None:
@@ -1018,39 +1023,75 @@ def list_msrc_months() -> dict[str, Any]:
 def sync_msrc(month: str = Query(..., description="Örnek: 2026-May"), db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> dict[str, Any]:
     try:
         raw = fetch_msrc_cvrf(month)
+        logger.info("MSRC sync response status code: %s", raw.get("status_code"))
+        logger.info("MSRC sync XML length: %s", len(raw.get("body") or ""))
         parsed = parse_msrc_cvrf(raw)
         parsed["month"] = month
         items = normalize_msrc_items(parsed)
     except MsrcApiError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        logger.exception("MSRC sync hata özeti: %s", exc)
+        return {"ok": False, "message": "MSRC verisi çekildi ancak işlenemedi.", "detail": str(exc)}
+    except Exception as exc:
+        logger.exception("MSRC sync beklenmeyen hata: %s", exc)
+        return {"ok": False, "message": "MSRC verisi çekildi ancak işlenemedi.", "detail": f"{type(exc).__name__}: {exc}"}
+
+    logger.info("parse edilen vulnerability count: %s", len(items))
     if not items:
         add_system_log(db, "msrc_sync_empty", "MSRC verisi boş döndü", {"month": month}, current_actor)
         db.commit()
-        return {"status": "empty", "message": "MSRC API bu ay için kayıt döndürmedi.", "created": 0, "updated": 0, "total": 0}
-    created = 0
+        return {"ok": True, "status": "empty", "message": "MSRC API bu ay için kayıt döndürmedi.", "inserted": 0, "updated": 0, "created": 0, "total": 0}
+
+    inserted = 0
     updated = 0
+    seen: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for item in items:
-        item["release_month"] = item.get("release_month") or month
-        existing = db.query(MsrcVulnerability).filter(
-            MsrcVulnerability.cve_id == (item.get("cve_id") or ""),
-            MsrcVulnerability.product == (item.get("product") or ""),
-            MsrcVulnerability.kb_article == (item.get("kb_article") or ""),
-            MsrcVulnerability.release_month == month,
-        ).one_or_none()
-        payload = {key: (item.get(key) or "") for key in ["cve_id", "title", "severity", "product", "kb_article", "fixed_build", "impact", "max_severity", "release_month", "url", "raw_json"]}
-        payload["release_date"] = item.get("release_date")
-        payload["publicly_disclosed"] = int(bool(item.get("publicly_disclosed")))
-        payload["exploited"] = int(bool(item.get("exploited")))
-        if existing:
-            for key, value in payload.items():
-                setattr(existing, key, value)
-            updated += 1
-        else:
-            db.add(MsrcVulnerability(**payload))
-            created += 1
-    add_system_log(db, "msrc_sync", "MSRC CVRF verisi senkronize edildi", {"month": month, "created": created, "updated": updated}, current_actor)
-    db.commit()
-    return {"status": "success", "message": "MSRC verisi başarıyla senkronize edildi.", "created": created, "updated": updated, "total": created + updated}
+        cve_id = (item.get("cve_id") or "").strip()
+        if not cve_id:
+            continue
+        release_month = (item.get("release_month") or month or "").strip()
+        product = (item.get("product") or "").strip()
+        kb_article = (item.get("kb_article") or "").strip()
+        key = (cve_id, product, kb_article, release_month)
+        item["cve_id"] = cve_id
+        item["product"] = product
+        item["kb_article"] = kb_article
+        item["release_month"] = release_month
+        seen[key] = item
+
+    try:
+        for (cve_id, product, kb_article, release_month), item in seen.items():
+            existing = db.query(MsrcVulnerability).filter(
+                MsrcVulnerability.cve_id == cve_id,
+                MsrcVulnerability.product == product,
+                MsrcVulnerability.kb_article == kb_article,
+                MsrcVulnerability.release_month == release_month,
+            ).first()
+            payload = {key: (item.get(key) or "") for key in ["cve_id", "title", "severity", "product", "kb_article", "fixed_build", "impact", "max_severity", "release_month", "url", "raw_json"]}
+            payload["title"] = payload["title"] or cve_id
+            payload["severity"] = payload["severity"] or payload["max_severity"] or "-"
+            payload["release_date"] = item.get("release_date")
+            payload["publicly_disclosed"] = int(bool(item.get("publicly_disclosed")))
+            payload["exploited"] = int(bool(item.get("exploited")))
+            if existing:
+                for field, value in payload.items():
+                    setattr(existing, field, value)
+                updated += 1
+            else:
+                db.add(MsrcVulnerability(**payload))
+                inserted += 1
+        add_system_log(db, "msrc_sync", "MSRC CVRF verisi senkronize edildi", {"month": month, "inserted": inserted, "updated": updated}, current_actor)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("MSRC DB kayıt hatası: %s", exc)
+        return {"ok": False, "message": "MSRC verisi çekildi ancak işlenemedi.", "detail": f"DB kayıt hatası: {exc.__class__.__name__}: {exc}"}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("MSRC DB beklenmeyen hata: %s", exc)
+        return {"ok": False, "message": "MSRC verisi çekildi ancak işlenemedi.", "detail": f"{type(exc).__name__}: {exc}"}
+
+    logger.info("DB inserted/updated count: %s/%s", inserted, updated)
+    return {"ok": True, "status": "success", "message": "MSRC verisi başarıyla senkronize edildi.", "inserted": inserted, "updated": updated, "created": inserted, "total": inserted + updated}
 
 
 @api.get("/msrc/vulnerabilities")
