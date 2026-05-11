@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   Alert, AppBar, Box, Button, Card, CardContent, Checkbox, Chip, Container, CssBaseline, Dialog, DialogActions,
@@ -250,11 +250,115 @@ function DefenderDetail({ detail, onClose, machines, recommendations }) {
   return <Dialog open={Boolean(detail)} onClose={onClose} maxWidth="lg" fullWidth><DialogTitle>Defender Detayı - {row.cve_id || row.recommendation_id}</DialogTitle><DialogContent dividers><Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable"><Tab label="Genel Bilgi" /><Tab label="Etkilenen Cihazlar" /><Tab label="Etkilenen Yazılımlar" /><Tab label="Remediation" /><Tab label="MSRC Eşleşmesi" /><Tab label="Ham Veri" /></Tabs><Box sx={{ mt: 2 }}>{tab === 0 && <pre>{JSON.stringify(row, null, 2)}</pre>}{tab === 1 && <DataTable title="Etkilenen Cihazlar" rows={affected} columns={[{ key: 'machine_name', label: 'Cihaz' }, { key: 'machine_id', label: 'ID' }, { key: 'severity', label: 'Severity' }]} />}{tab === 2 && <DataTable title="Etkilenen Yazılımlar" rows={affected} columns={[{ key: 'product_vendor', label: 'Üretici' }, { key: 'product_name', label: 'Uygulama' }, { key: 'product_version', label: 'Versiyon' }]} />}{tab === 3 && <DataTable title="Remediation" rows={recs} columns={[{ key: 'recommendation_id', label: 'ID' }, { key: 'recommendation_name', label: 'Öneri' }, { key: 'remediation_type', label: 'Tip' }]} />}{tab === 4 && <Alert severity={row.msrc_match ? 'success' : 'info'}>{row.msrc_match ? 'MSRC Var' : 'MSRC kaydı bulunamadı'}</Alert>}{tab === 5 && <pre>{JSON.stringify(row.raw || row, null, 2)}</pre>}</Box></DialogContent><DialogActions><Button onClick={onClose}>Kapat</Button></DialogActions></Dialog>;
 }
 
-function Reports({ findings }) {
-  const rows = [
-    ['Kritik/Yüksek Defender CVE Raporu', 'Defender ekranından Excel export ile alınabilir.'], ['Uygulama Bazlı Zafiyet Raporu', 'Defender_Cihaz_Yazilim_CVE sayfası kullanılır.'], ['Cihaz Bazlı Zafiyet Raporu', 'Cihaz adına göre filtrelenmiş rapor.'], ['Public Exploit Olan CVE Raporu', 'Public exploit kolonu Evet olanlar.'], ['Remediation Bekleyenler Raporu', 'Remediation status açık/pending olanlar.'], ['Defender’dan Bulguya Dönüştürülenler Raporu', `${findings.filter((f) => f.source === 'Defender').length} kayıt`],
+const REPORT_DUE_SOON_DAYS = 15;
+const reportTableColumns = [
+  { key: 'record_no', label: 'Kayıt No', width: 120 },
+  { key: 'title', label: 'Başlık', width: 260 },
+  { key: 'severity', label: 'Seviye', width: 105 },
+  { key: 'related_unit', label: 'Birim', width: 190 },
+  { key: 'related_person', label: 'İlgili Kişi', width: 170 },
+  { key: 'status', label: 'Durum', width: 130 },
+  { key: 'active_due_date', label: 'Termin', width: 115 },
+  { key: 'due_date_change_count', label: 'Termin Revize Sayısı', width: 150 },
+  { key: 'updated_at', label: 'Son Güncelleme', width: 145 },
+];
+
+function reportDateOnly(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isFindingOpen(row) { return row.status !== 'Kapatıldı'; }
+function isReportOverdue(row, today = new Date()) { const due = reportDateOnly(row.active_due_date); const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()); return isFindingOpen(row) && due && due < start; }
+function isReportDueSoon(row, today = new Date()) { const due = reportDateOnly(row.active_due_date); const start = new Date(today.getFullYear(), today.getMonth(), today.getDate()); const limit = new Date(start.getTime() + REPORT_DUE_SOON_DAYS * 86400000); return isFindingOpen(row) && due && due >= start && due <= limit; }
+function reportDueState(row) { if (!row.active_due_date) return 'Terminsiz'; if (isReportOverdue(row)) return 'Termin Geçen'; if (isReportDueSoon(row)) return 'Termin Yaklaşan'; return 'Zamanında'; }
+function uniqueOptions(rows, key) { return [...new Set(rows.flatMap((row) => (key === 'related_person' ? splitRelatedPeople(row[key]) : [row[key]]).map((x) => String(x || '').trim()).filter(Boolean)))].sort((a, b) => a.localeCompare(b, 'tr')); }
+function includesText(value, search) { return String(value || '').toLocaleLowerCase('tr-TR').includes(search); }
+
+async function downloadReportExcel(rows, filename, show) {
+  if (!rows.length) {
+    show('Excel’e aktarılacak kayıt bulunmuyor.', 'warning');
+    return;
+  }
+  try {
+    const response = await fetch(exportUrl(rows.map((row) => row.id)));
+    if (!response.ok) throw new Error('Excel export başarısız oldu');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    show(error.message || 'Excel export başarısız oldu', 'error');
+  }
+}
+
+function ReportFindingTable({ title, rows, filename, onSelect, show }) {
+  const tableWidth = reportTableColumns.reduce((sum, column) => sum + column.width, 0);
+  return <Paper sx={{ ...panelSx, overflow: 'hidden' }}><Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} justifyContent="space-between" spacing={1.5} sx={{ mb: 2 }}><Typography variant="h6">{title} - {rows.length} kayıt</Typography><Button variant="outlined" onClick={() => downloadReportExcel(rows, filename, show)} disabled={!rows.length}>Excel’e Aktar</Button></Stack><TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}><Table size="small" sx={{ width: tableWidth, minWidth: '100%', tableLayout: 'fixed', '& th': { bgcolor: '#f8fafc', fontWeight: 800, whiteSpace: 'normal', lineHeight: 1.18 }, '& td': { verticalAlign: 'middle', overflow: 'hidden' }, '& tbody tr': { cursor: 'pointer' }, '& tbody tr:hover td': { bgcolor: '#eef6ff' } }}><TableHead><TableRow>{reportTableColumns.map((column) => <TableCell key={column.key} sx={{ width: column.width, minWidth: column.width }}>{column.label}</TableCell>)}</TableRow></TableHead><TableBody>{rows.length ? rows.map((row) => <TableRow hover key={row.id} onClick={() => onSelect(row)}><TableCell><Tooltip title={row.record_no || '-'}><Typography noWrap variant="body2" fontWeight={700}>{row.record_no || '-'}</Typography></Tooltip></TableCell><TableCell><Tooltip title={row.title || '-'}><Typography noWrap fontWeight={700}>{row.title || '-'}</Typography></Tooltip></TableCell><TableCell><SeverityChip severity={row.severity} /></TableCell><TableCell><Tooltip title={row.related_unit || '-'}><Typography variant="body2" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.25 }}>{row.related_unit || '-'}</Typography></Tooltip></TableCell><TableCell><Tooltip title={splitRelatedPeople(row.related_person).join(', ') || '-'}><Typography noWrap variant="body2">{summarizeRelatedPeople(row.related_person)}</Typography></Tooltip></TableCell><TableCell><StatusChip status={row.status} /></TableCell><TableCell>{formatDay(row.active_due_date)}</TableCell><TableCell>{row.due_date_change_count ?? 0}</TableCell><TableCell>{formatShortDateTime(row.updated_at)}</TableCell></TableRow>) : <TableRow><TableCell colSpan={reportTableColumns.length} align="center">Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer></Paper>;
+}
+
+function Reports({ findings, show }) {
+  const [detail, setDetail] = useState(null);
+  const [filters, setFilters] = useState(emptyFilters);
+  const options = useMemo(() => ({
+    severities,
+    statuses,
+    related_units: uniqueOptions(findings, 'related_unit'),
+    related_people: uniqueOptions(findings, 'related_person'),
+  }), [findings]);
+  const filteredFindings = useMemo(() => {
+    const search = filters.search.trim().toLocaleLowerCase('tr-TR');
+    return findings.filter((row) => {
+      if (search) {
+        const haystack = [row.record_no, row.title, row.description, row.recommendation, row.related_unit, row.related_person, row.status, row.severity].join(' ').toLocaleLowerCase('tr-TR');
+        if (!includesText(haystack, search)) return false;
+      }
+      if (filters.severity && row.severity !== filters.severity) return false;
+      if (filters.status && row.status !== filters.status) return false;
+      if (filters.related_unit && row.related_unit !== filters.related_unit) return false;
+      if (filters.related_person && !splitRelatedPeople(row.related_person).includes(filters.related_person)) return false;
+      if (filters.due_state && reportDueState(row) !== filters.due_state) return false;
+      return true;
+    });
+  }, [findings, filters]);
+  const reportGroups = useMemo(() => ({
+    urgentCritical: filteredFindings.filter((row) => isFindingOpen(row) && ['Acil', 'Kritik'].includes(row.severity)),
+    high: filteredFindings.filter((row) => isFindingOpen(row) && row.severity === 'Yüksek'),
+    overdue: filteredFindings.filter((row) => isReportOverdue(row)),
+    dueSoon: filteredFindings.filter((row) => isReportDueSoon(row)),
+  }), [filteredFindings]);
+  const summaryCards = [
+    ['Toplam Bulgu', filteredFindings.length, CARD_ACCENTS.total],
+    ['Açık Bulgu', filteredFindings.filter(isFindingOpen).length, CARD_ACCENTS.open],
+    ['Kapatılan Bulgu', filteredFindings.filter((row) => row.status === 'Kapatıldı').length, CARD_ACCENTS.closed],
+    ['Acil + Kritik Açık', reportGroups.urgentCritical.length, CARD_ACCENTS.critical],
+    ['Yüksek Açık', reportGroups.high.length, CARD_ACCENTS.high],
+    ['Termin Geçen', reportGroups.overdue.length, CARD_ACCENTS.overdue],
+    ['Termin Yaklaşan', reportGroups.dueSoon.length, CARD_ACCENTS.dueSoon],
   ];
-  return <Stack spacing={2}><SectionHeader title="Raporlar" description="Bulgular ve Defender raporları Excel’e aktarılabilir." /><Button variant="contained" href={exportUrl()}>Ana Bulgular Excel Export</Button><Button variant="outlined" href={defenderExportUrl()}>Defender Excel Export</Button><DataTable title="Defender Raporları" rows={rows.map(([name, desc], id) => ({ id, name, desc }))} columns={[{ key: 'name', label: 'Rapor' }, { key: 'desc', label: 'Açıklama' }]} /></Stack>;
+  const setFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
+  const activeFilters = Object.entries(filters).filter(([, value]) => Boolean(value));
+  const clearFilters = () => setFilters(emptyFilters);
+
+  return <Stack spacing={2.5} sx={{ minWidth: 0 }}><SectionHeader title="Raporlar" description="Güvenlik bulgularını yönetici özeti, filtrelenebilir tablolar ve tablo bazlı Excel çıktılarıyla takip edin." />
+    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(7, minmax(0, 1fr))' }, gap: 2, alignItems: 'stretch' }}>{summaryCards.map(([label, value, accent]) => <SummaryCard key={label} label={label} value={value} accent={accent} />)}</Box>
+    <Paper sx={{ p: 2, border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden' }}><Stack spacing={1.5}><Typography variant="h6">Genel Filtreler</Typography><Grid container spacing={1.5} alignItems="center"><Grid item xs={12} md={3}><TextField size="small" fullWidth label="Arama" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} placeholder="Başlık, kayıt no, açıklama..." /></Grid>{[
+      ['severity', 'Seviye', options.severities], ['status', 'Durum', options.statuses], ['related_unit', 'Birim', options.related_units], ['related_person', 'İlgili Kişi', options.related_people], ['due_state', 'Termin Durumu', ['Termin Geçen', 'Termin Yaklaşan', 'Terminsiz', 'Zamanında']],
+    ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearFilters} variant={activeFilters.length ? 'contained' : 'text'}>Filtreleri Temizle</Button></Grid>{activeFilters.length ? <Grid item xs={12}><Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{activeFilters.map(([key, value]) => <Chip key={key} label={filterLabel(key, value)} onDelete={() => setFilter(key, '')} color="primary" variant="outlined" />)}</Stack></Grid> : null}</Grid></Stack></Paper>
+    <ReportFindingTable title="Acil ve Kritik Açık Bulgular" rows={reportGroups.urgentCritical} filename="acil-kritik-acik-bulgular.xlsx" onSelect={setDetail} show={show} />
+    <ReportFindingTable title="Yüksek Seviyeli Açık Bulgular" rows={reportGroups.high} filename="yuksek-acik-bulgular.xlsx" onSelect={setDetail} show={show} />
+    <ReportFindingTable title="Termin Geçen Bulgular" rows={reportGroups.overdue} filename="termin-gecen-bulgular.xlsx" onSelect={setDetail} show={show} />
+    <ReportFindingTable title="Termin Yaklaşan Bulgular" rows={reportGroups.dueSoon} filename="termin-yaklasan-bulgular.xlsx" onSelect={setDetail} show={show} />
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}><Button variant="contained" href={exportUrl()}>Tüm Bulgular Excel Export</Button><Button variant="outlined" href={defenderExportUrl()}>Defender Excel Export</Button></Stack>
+    <FindingDetail finding={detail} onClose={() => setDetail(null)} show={show} />
+  </Stack>;
 }
 
 function SettingsPage({ show }) {
@@ -281,7 +385,7 @@ function App() {
     if (tab === 2) return <AddFindingPage onSave={saveNew} onImported={imported} show={show} />;
     if (tab === 3) return <MsrcPage />;
     if (tab === 4) return <DefenderPage show={show} refreshApp={refresh} />;
-    if (tab === 5) return <Reports findings={findings} />;
+    if (tab === 5) return <Reports findings={findings} show={show} />;
     return <SettingsPage show={show} />;
   };
   return <ThemeProvider theme={theme}><CssBaseline /><Box sx={{ bgcolor: 'background.default', display: 'flex', minHeight: '100vh' }}><AppBar position="fixed" sx={{ zIndex: (muiTheme) => muiTheme.zIndex.drawer + 1 }}><Toolbar sx={{ gap: 2, minHeight: 72 }}><BrandLogo height={40} /><Box sx={{ flexGrow: 1 }}><Typography variant="h6" noWrap>Risk ve Bulgu Yönetimi</Typography></Box><Button color="inherit" href={exportUrl()} variant="contained" sx={{ bgcolor: 'rgba(255,255,255,.15)' }}>Excel Dışa Aktar</Button></Toolbar></AppBar><Drawer variant="permanent" sx={{ width: DRAWER_WIDTH, flexShrink: 0, [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: 'border-box', bgcolor: '#fff', borderRight: '1px solid rgba(15, 47, 87, 0.10)', overflowX: 'hidden' } }}><Toolbar sx={{ minHeight: 76, justifyContent: 'center', px: 2 }}><BrandLogo height={36} /></Toolbar><Divider /><Box sx={{ p: 2 }}><Typography variant="caption" color="text.secondary" fontWeight={800} sx={{ display: 'block', textAlign: 'center', letterSpacing: 1, fontSize: 11, mb: 1 }}>MENÜ</Typography><List disablePadding sx={{ display: 'grid', gap: .75 }}>{navigationItems.map((item, index) => <ListItemButton key={item} selected={tab === index} onClick={() => setTab(index)} sx={{ borderRadius: '18px', minHeight: 48, py: 1, px: 1.75, justifyContent: 'center', alignItems: 'center', textAlign: 'center', '&:hover': { bgcolor: '#f3f6fa' }, '&.Mui-selected': { bgcolor: '#0f2f57', color: 'primary.contrastText', boxShadow: '0 10px 22px rgba(15, 47, 87, .18)', '&:hover': { bgcolor: 'primary.dark' } } }}><ListItemText primary={item} secondary={index === 1 ? `${findings.length} kayıt` : index === 0 ? 'Genel görünüm' : null} sx={{ m: 0, textAlign: 'center' }} primaryTypographyProps={{ fontWeight: 800, textAlign: 'center', fontSize: 14, lineHeight: 1.2 }} secondaryTypographyProps={{ textAlign: 'center', fontSize: 11, lineHeight: 1.2, mt: .25, color: tab === index ? 'rgba(255,255,255,.76)' : 'text.secondary' }} /></ListItemButton>)}</List></Box></Drawer><Box component="main" sx={{ flexGrow: 1, minWidth: 0 }}><Toolbar sx={{ minHeight: 72 }} /><Container maxWidth="xl" sx={{ py: 3.5 }}>{content()}</Container></Box><Snackbar open={Boolean(message)} autoHideDuration={6000} onClose={() => setMessage('')}><Alert severity={severity} onClose={() => setMessage('')}>{message}</Alert></Snackbar></Box></ThemeProvider>;
