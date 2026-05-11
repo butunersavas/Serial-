@@ -82,6 +82,29 @@ class AuditLog(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class MsrcVulnerability(Base):
+    __tablename__ = "msrc_vulnerabilities"
+    __table_args__ = (UniqueConstraint("cve_id", "product", "kb_article", "release_month", name="uq_msrc_cve_product_kb_month"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    cve_id: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(512), default="")
+    severity: Mapped[str] = mapped_column(String(64), default="", index=True)
+    product: Mapped[str] = mapped_column(String(512), default="", index=True)
+    kb_article: Mapped[str] = mapped_column(String(128), default="", index=True)
+    fixed_build: Mapped[str] = mapped_column(String(255), default="")
+    impact: Mapped[str] = mapped_column(Text, default="")
+    max_severity: Mapped[str] = mapped_column(String(64), default="")
+    publicly_disclosed: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    exploited: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    release_month: Mapped[str] = mapped_column(String(32), default="", index=True)
+    release_date: Mapped[Date | None] = mapped_column(Date, nullable=True, index=True)
+    url: Mapped[str] = mapped_column(String(1024), default="")
+    raw_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
+
+
 class DefenderSettings(Base):
     __tablename__ = "defender_settings"
 
