@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   Alert, AppBar, Box, Button, Card, CardContent, Checkbox, Chip, Container, CssBaseline, Dialog, DialogActions,
   DialogContent, DialogTitle, Divider, Drawer, FormControl, FormControlLabel, Grid, InputLabel, List,
-  ListItemButton, ListItemText, MenuItem, Paper, Select, Snackbar, Stack, Tab, Tabs, Table, TableBody,
+  ListItemButton, ListItemText, Menu, MenuItem, Paper, Select, Snackbar, Stack, Tab, Tabs, Table, TableBody,
   TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, ThemeProvider, Toolbar, Tooltip, Typography,
 } from '@mui/material';
 import theme, { severityColors } from './theme';
@@ -21,41 +21,57 @@ const severities = ['Acil', 'Kritik', 'Yüksek', 'Orta', 'Düşük'];
 const statuses = ['Devam Ediyor', 'Kapatıldı'];
 const navigationItems = ['Gösterge Paneli', 'Bulgular', 'Bulgu Ekle', 'Microsoft CVE / MSRC', 'Defender Zafiyetleri', 'Raporlar', 'Ayarlar'];
 const emptyFinding = { record_no: '', title: '', severity: 'Orta', impact: '', description: '', recommendation: '', related_unit: '', related_person: '', status: 'Devam Ediyor', due_date: '', new_due_date: '', note: '', source: 'Manuel' };
+const CARD_ACCENTS = {
+  total: '#0f2f57',
+  open: '#64748b',
+  closed: '#16a34a',
+  urgent: '#7f1d1d',
+  critical: '#b91c1c',
+  high: '#f97316',
+  medium: '#eab308',
+  low: '#16a34a',
+  overdue: '#991b1b',
+  dueSoon: '#f59e0b',
+  info: '#2563eb',
+};
+const gridSx = (min = 180) => ({ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(${min}px, 1fr))`, gap: 2, alignItems: 'stretch' });
+const panelSx = { p: 2.5, height: '100%', border: '1px solid rgba(15, 47, 87, 0.08)' };
 
 function formatDate(value) { return value ? new Date(value).toLocaleString('tr-TR') : '-'; }
+function formatShortDateTime(value) { if (!value) return '-'; const d = new Date(value); return <Box component="span" sx={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1.25 }}><span>{d.toLocaleDateString('tr-TR')}</span><span>{d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span></Box>; }
 function formatDay(value) { return value ? new Date(value).toLocaleDateString('tr-TR') : '-'; }
 function isOverdue(row) { return row.status !== 'Kapatıldı' && row.active_due_date && new Date(row.active_due_date) < new Date(new Date().toDateString()); }
 function isDueSoon(row) { const today = new Date(new Date().toDateString()); const due = row.active_due_date ? new Date(row.active_due_date) : null; return row.status !== 'Kapatıldı' && due && due >= today && due <= new Date(today.getTime() + 7 * 86400000); }
 function BrandLogo({ height = 40 }) { return <Box component="img" src={LOGO_SRC} alt="Sürat Kargo" sx={{ display: 'block', height, maxHeight: height, maxWidth: '100%', objectFit: 'contain' }} />; }
 function SeverityChip({ severity }) { return <Chip label={severity || '-'} size="small" sx={{ minWidth: 72, bgcolor: severityColors[severity] || { Critical: '#991b1b', High: '#dc2626', Medium: '#f59e0b', Low: '#16a34a' }[severity] || 'primary.main', color: severity === 'Orta' || severity === 'Medium' ? '#1f2937' : '#fff', fontWeight: 800 }} />; }
-function SummaryCard({ label, value, helper, accent = 'primary.main', onClick }) { return <Card onClick={onClick} sx={{ height: '100%', cursor: onClick ? 'pointer' : 'default', transition: 'transform .15s ease, box-shadow .15s ease', '&:hover': onClick ? { transform: 'translateY(-2px)', boxShadow: 5 } : undefined }}><CardContent><Stack direction="row" justifyContent="space-between" spacing={2}><Box><Typography color="text.secondary" variant="body2" fontWeight={700}>{label}</Typography><Typography variant="h4" fontWeight={900} sx={{ mt: .5 }}>{value ?? '-'}</Typography></Box><Box sx={{ width: 10, height: 54, borderRadius: 10, bgcolor: accent }} /></Stack>{helper && <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: 1.5 }}>{helper}</Typography>}</CardContent></Card>; }
+function SummaryCard({ label, value, helper, accent = 'primary.main', onClick, selected = false }) { return <Card onClick={onClick} sx={{ height: '100%', minHeight: 126, cursor: onClick ? 'pointer' : 'default', borderColor: selected ? accent : 'rgba(15, 47, 87, 0.08)', boxShadow: selected ? `0 0 0 2px ${accent}22, 0 14px 36px rgba(15, 47, 87, 0.10)` : undefined, transition: 'transform .15s ease, box-shadow .15s ease, border-color .15s ease', '&:hover': onClick ? { transform: 'translateY(-2px)', boxShadow: '0 16px 34px rgba(15, 47, 87, 0.14)' } : undefined }}><CardContent sx={{ height: '100%', p: 2.25, '&:last-child': { pb: 2.25 } }}><Stack direction="row" justifyContent="space-between" spacing={2} sx={{ height: '100%' }}><Box sx={{ minWidth: 0 }}><Typography color="text.secondary" variant="body2" fontWeight={700}>{label}</Typography><Typography variant="h4" fontWeight={800} sx={{ mt: .5, letterSpacing: '-0.03em' }}>{value ?? '-'}</Typography>{helper && <Typography color="text.secondary" variant="caption" sx={{ display: 'block', mt: 1.25 }}>{helper}</Typography>}</Box><Box sx={{ width: 10, alignSelf: 'stretch', minHeight: 58, borderRadius: 10, bgcolor: accent, flexShrink: 0 }} /></Stack></CardContent></Card>; }
 function SectionHeader({ title, description }) { return <Box sx={{ mb: 2.5 }}><Typography variant="h5" color="primary.dark">{title}</Typography><Typography color="text.secondary" sx={{ mt: .5 }}>{description}</Typography></Box>; }
 
 function DataTable({ title, rows = [], columns, actions }) {
-  return <Paper sx={{ p: 2.5, height: '100%', border: '1px solid rgba(15, 47, 87, 0.08)' }}><Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography><TableContainer><Table size="small"><TableHead><TableRow>{columns.map((c) => <TableCell key={c.key}>{c.label}</TableCell>)}{actions && <TableCell>İşlem</TableCell>}</TableRow></TableHead><TableBody>{rows.length ? rows.map((row, i) => <TableRow hover key={row.id || row.cve_id || row.recommendation_id || i}>{columns.map((c) => <TableCell key={c.key}>{c.render ? c.render(row) : (row[c.key] ?? '-')}</TableCell>)}{actions && <TableCell>{actions(row)}</TableCell>}</TableRow>) : <TableRow><TableCell colSpan={columns.length + (actions ? 1 : 0)}>Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer></Paper>;
+  return <Paper sx={panelSx}><Typography variant="h6" sx={{ mb: 2 }}>{title}</Typography><TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}><Table size="small" sx={{ '& th': { bgcolor: '#f8fafc', fontWeight: 800, whiteSpace: 'nowrap' }, '& td': { verticalAlign: 'middle' } }}><TableHead><TableRow>{columns.map((c) => <TableCell key={c.key}>{c.label}</TableCell>)}{actions && <TableCell>İşlem</TableCell>}</TableRow></TableHead><TableBody>{rows.length ? rows.map((row, i) => <TableRow hover key={row.id || row.cve_id || row.recommendation_id || i}>{columns.map((c) => <TableCell key={c.key}>{c.render ? c.render(row) : (row[c.key] ?? '-')}</TableCell>)}{actions && <TableCell>{actions(row)}</TableCell>}</TableRow>) : <TableRow><TableCell colSpan={columns.length + (actions ? 1 : 0)}>Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer></Paper>;
 }
 
 function Dashboard({ summary, onFindingsFilter }) {
   const d = summary || {};
   const defender = d.defender_summary || {};
   const cards = [
-    ['Toplam Bulgu', d.total, 'Tüm kayıtlar', 'primary.main', {}],
-    ['Açık Kalan', d.open, 'Kapatılmamış kayıtlar', '#64748b', { status: 'Devam Ediyor' }],
-    ['Kapatılan', d.closed, 'Tamamlanan kayıtlar', '#16a34a', { status: 'Kapatıldı' }],
-    ['Acil', d.severity_counts?.Acil || 0, 'Acil seviye', severityColors.Acil, { severity: 'Acil' }],
+    ['Toplam Bulgu', d.total, 'Tüm kayıtlar', CARD_ACCENTS.total, {}],
+    ['Açık Kalan', d.open, 'Kapatılmamış kayıtlar', CARD_ACCENTS.open, { status: 'Devam Ediyor' }],
+    ['Kapatılan', d.closed, 'Tamamlanan kayıtlar', CARD_ACCENTS.closed, { status: 'Kapatıldı' }],
+    ['Acil', d.severity_counts?.Acil || 0, 'Acil seviye', CARD_ACCENTS.urgent, { severity: 'Acil' }],
     ['Kritik', d.severity_counts?.Kritik || 0, 'Kritik seviye', severityColors.Kritik, { severity: 'Kritik' }],
     ['Yüksek', d.severity_counts?.Yüksek || 0, 'Yüksek seviye', severityColors.Yüksek, { severity: 'Yüksek' }],
     ['Orta', d.severity_counts?.Orta || 0, 'Orta seviye', severityColors.Orta, { severity: 'Orta' }],
     ['Düşük', d.severity_counts?.Düşük || 0, 'Düşük seviye', severityColors.Düşük, { severity: 'Düşük' }],
-    ['Geciken Bulgular', d.overdue || d.delayed || 0, 'Aktif termini geçmiş', '#dc2626', { due_state: 'overdue' }],
-    ['Termin Yaklaşan', d.due_soon || 0, '7 gün içinde', '#f59e0b', { due_state: 'due_soon' }],
+    ['Geciken Bulgular', d.overdue || d.delayed || 0, 'Aktif termini geçmiş', CARD_ACCENTS.overdue, { due_state: 'overdue' }],
+    ['Termin Yaklaşan', d.due_soon || 0, '7 gün içinde', CARD_ACCENTS.dueSoon, { due_state: 'due_soon' }],
   ];
   return <Stack spacing={3}><SectionHeader title="Gösterge Paneli" description="Bulgular, SLA durumu ve Defender zafiyet özetleri." />
-    <Grid container spacing={2}>{cards.map(([label, value, helper, accent, filters]) => <Grid item xs={12} sm={6} md={4} lg={12 / 7} key={label}><SummaryCard label={label} value={value} helper={helper} accent={accent} onClick={() => onFindingsFilter(filters)} /></Grid>)}</Grid>
-    <Paper sx={{ p: 2.5 }}><Typography variant="h6" sx={{ mb: 2 }}>Microsoft Defender Özeti</Typography><Grid container spacing={2}>{[
+    <Box sx={gridSx(180)}>{cards.map(([label, value, helper, accent, filters]) => <SummaryCard key={label} label={label} value={value} helper={helper} accent={accent} onClick={() => onFindingsFilter(filters)} />)}</Box>
+    <Paper sx={panelSx}><Typography variant="h6" sx={{ mb: 2 }}>Microsoft Defender Özeti</Typography><Box sx={gridSx(190)}>{[
       ['Defender Toplam CVE', defender.total_cve || 0], ['Kritik Defender CVE', defender.critical_cve || 0], ['Yüksek Defender CVE', defender.high_cve || 0], ['Etkilenen Cihaz Sayısı', defender.affected_machines || 0], ['Public Exploit', defender.public_exploit || 0], ['Bulguya Dönüştürülen Defender CVE', defender.converted_findings || 0],
-    ].map(([label, value]) => <Grid item xs={12} md={2} key={label}><SummaryCard label={label} value={value} /></Grid>)}</Grid></Paper>
-    <Grid container spacing={2}><Grid item xs={12} md={6}><DataTable title="Geciken Bulgular" rows={d.overdue_findings || []} columns={[{ key: 'record_no', label: 'Kayıt No' }, { key: 'title', label: 'Başlık' }, { key: 'severity', label: 'Seviye', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'active_due_date', label: 'Termin', render: (r) => formatDay(r.active_due_date) }]} /></Grid><Grid item xs={12} md={6}><DataTable title="Termin Yaklaşanlar" rows={d.approaching_due || []} columns={[{ key: 'record_no', label: 'Kayıt No' }, { key: 'title', label: 'Başlık' }, { key: 'severity', label: 'Seviye', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'active_due_date', label: 'Termin', render: (r) => formatDay(r.active_due_date) }]} /></Grid></Grid>
+    ].map(([label, value]) => <SummaryCard key={label} label={label} value={value} accent={CARD_ACCENTS.info} />)}</Box></Paper>
+    <Box sx={gridSx(420)}><DataTable title="Geciken Bulgular" rows={d.overdue_findings || []} columns={[{ key: 'record_no', label: 'Kayıt No' }, { key: 'title', label: 'Başlık' }, { key: 'severity', label: 'Seviye', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'active_due_date', label: 'Termin', render: (r) => formatDay(r.active_due_date) }]} /><DataTable title="Termin Yaklaşanlar" rows={d.approaching_due || []} columns={[{ key: 'record_no', label: 'Kayıt No' }, { key: 'title', label: 'Başlık' }, { key: 'severity', label: 'Seviye', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'active_due_date', label: 'Termin', render: (r) => formatDay(r.active_due_date) }]} /></Box>
   </Stack>;
 }
 
@@ -72,7 +88,7 @@ function FindingForm({ initial = emptyFinding, onSubmit, submitLabel = 'Kaydet' 
     <Grid item xs={12}><Button type="submit" variant="contained">{submitLabel}</Button></Grid></Grid></Box>;
 }
 
-const emptyFilters = { search: '', severity: '', status: '', related_unit: '', related_person: '', due_state: '', source: '' };
+const emptyFilters = { search: '', severity: '', status: '', related_unit: '', related_person: '', due_state: '' };
 
 function StatusChip({ status }) { return <Chip size="small" label={status || '-'} color={status === 'Kapatıldı' ? 'success' : 'default'} sx={{ bgcolor: status === 'Kapatıldı' ? '#dcfce7' : '#e0f2fe', color: status === 'Kapatıldı' ? '#166534' : '#075985', fontWeight: 800 }} />; }
 
@@ -91,7 +107,7 @@ function filtersForApi(next) {
 }
 
 function filterLabel(key, value) {
-  const labels = { search: 'Arama', severity: 'Seviye', status: 'Durum', related_unit: 'Birim', related_person: 'İlgili Kişi', due_state: 'Termin', source: 'Kaynak' };
+  const labels = { search: 'Arama', severity: 'Seviye', status: 'Durum', related_unit: 'Birim', related_person: 'İlgili Kişi', due_state: 'Termin' };
   return `${labels[key] || key}: ${value}`;
 }
 
@@ -103,10 +119,11 @@ function FindingsPage({ summary, refresh, show }) {
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(null);
   const [rows, setRows] = useState([]);
-  const [options, setOptions] = useState({ related_units: [], related_people: [], sources: [], severities, statuses });
+  const [options, setOptions] = useState({ related_units: [], related_people: [], severities, statuses });
   const [filters, setFilters] = useState(emptyFilters);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [actionMenu, setActionMenu] = useState(null);
 
   const readFilters = () => {
     const params = new URLSearchParams(window.location.search);
@@ -143,38 +160,31 @@ function FindingsPage({ summary, refresh, show }) {
   const saveEdit = async (payload) => { try { await updateFinding(editing.id, payload); setEditing(null); show('Bulgu güncellendi.', 'success'); reloadAll(); } catch (e) { show(e.message, 'error'); } };
 
   const miniCards = [
-    ['Toplam Bulgu', summary?.total || 0, {}, 'primary.main'],
-    ['Açık Kalan', summary?.open || 0, { status: 'Devam Ediyor' }, '#64748b'],
-    ['Kapatılan', summary?.closed || 0, { status: 'Kapatıldı' }, '#16a34a'],
+    ['Toplam Bulgu', summary?.total || 0, {}, CARD_ACCENTS.total],
+    ['Açık Kalan', summary?.open || 0, { status: 'Devam Ediyor' }, CARD_ACCENTS.open],
+    ['Kapatılan', summary?.closed || 0, { status: 'Kapatıldı' }, CARD_ACCENTS.closed],
     ['Kritik', summary?.severity_counts?.Kritik || 0, { severity: 'Kritik' }, severityColors.Kritik],
     ['Yüksek', summary?.severity_counts?.Yüksek || 0, { severity: 'Yüksek' }, severityColors.Yüksek],
-    ['Geciken', summary?.overdue || summary?.delayed || 0, { due_state: 'Geciken' }, '#dc2626'],
-    ['Termin Yaklaşan', summary?.due_soon || 0, { due_state: 'Termin Yaklaşan' }, '#f59e0b'],
+    ['Geciken', summary?.overdue || summary?.delayed || 0, { due_state: 'Geciken' }, CARD_ACCENTS.overdue],
+    ['Termin Yaklaşan', summary?.due_soon || 0, { due_state: 'Termin Yaklaşan' }, CARD_ACCENTS.dueSoon],
   ];
   const activeFilters = Object.entries(filters).filter(([, value]) => Boolean(value));
   const visible = rows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
-  const actionCellSx = {
-    width: 260,
-    minWidth: 260,
-    maxWidth: 260,
-    position: 'sticky',
-    right: 0,
-    zIndex: 2,
-    bgcolor: '#fff',
-    boxShadow: '-10px 0 18px -18px rgba(15,47,87,.85)',
-  };
+  const rowBg = (r) => (isOverdue(r) ? '#fff1f2' : isDueSoon(r) ? '#fffbeb' : r.status === 'Kapatıldı' ? '#f0fdf4' : '#fff');
+  const closeOrReopen = async (r) => { await (r.status === 'Kapatıldı' ? reopenFindingApi(r.id) : closeFindingApi(r.id)); setActionMenu(null); reloadAll(); };
+  const actionCellSx = { width: '17%', position: 'sticky', right: 0, zIndex: 2, boxShadow: '-10px 0 18px -18px rgba(15,47,87,.85)' };
 
   return <Stack spacing={2.25} sx={{ minWidth: 0 }}><SectionHeader title="Bulgular" description="İç bulgu kayıtları, durum, sorumlu kişi ve aksiyon takibi." />
-    <Grid container spacing={1.25}>{miniCards.map(([label, value, cardFilters, accent]) => {
+    <Box sx={gridSx(155)}>{miniCards.map(([label, value, cardFilters, accent]) => {
       const selected = isSameFilter(filters, { ...emptyFilters, ...cardFilters });
-      return <Grid item xs={6} md={3} lg={12 / 7} key={label}><Paper onClick={() => applyFilters({ ...emptyFilters, ...cardFilters })} sx={{ p: 1.25, border: selected ? `2px solid ${accent}` : '1px solid rgba(15,47,87,.08)', cursor: 'pointer', bgcolor: selected ? 'rgba(15,47,87,.06)' : '#fff', transition: 'all .15s ease', '&:hover': { transform: 'translateY(-1px)', boxShadow: 3 } }}><Typography variant="caption" color="text.secondary" fontWeight={800}>{label}</Typography><Typography variant="h6" fontWeight={900}>{value}</Typography></Paper></Grid>;
-    })}</Grid>
+      return <SummaryCard key={label} label={label} value={value} accent={accent} selected={selected} onClick={() => applyFilters({ ...emptyFilters, ...cardFilters })} />;
+    })}</Box>
     <Paper sx={{ p: 2, border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden' }}><Grid container spacing={1.5} alignItems="center"><Grid item xs={12} md={3}><TextField size="small" fullWidth label="Arama" value={filters.search} onChange={(e) => setFilter('search', e.target.value)} placeholder="Başlık, kayıt no, açıklama..." /></Grid>{[
-      ['severity', 'Durum Seviyesi', options.severities || severities], ['status', 'Durum', options.statuses || statuses], ['related_unit', 'İlgili Birim / Kurum', options.related_units || []], ['related_person', 'İlgili Kişi', options.related_people || []], ['due_state', 'Termin Durumu', ['Geciken', 'Termin Yaklaşan', 'Terminsiz']], ['source', 'Kaynak', options.sources || ['Manuel', 'Excel', 'MSRC', 'Defender']],
+      ['severity', 'Durum Seviyesi', options.severities || severities], ['status', 'Durum', options.statuses || statuses], ['related_unit', 'İlgili Birim / Kurum', options.related_units || []], ['related_person', 'İlgili Kişi', options.related_people || []], ['due_state', 'Termin Durumu', ['Geciken', 'Termin Yaklaşan', 'Terminsiz']],
     ].map(([key, label, list]) => <Grid item xs={12} sm={6} md={key === 'related_unit' || key === 'related_person' ? 2 : 1.5} key={key}><FormControl size="small" fullWidth><InputLabel>{label}</InputLabel><Select label={label} value={filters[key]} onChange={(e) => setFilter(key, e.target.value)}><MenuItem value="">Tümü</MenuItem>{list.map((x) => <MenuItem value={x} key={x}>{x}</MenuItem>)}</Select></FormControl></Grid>)}<Grid item xs={12} md="auto"><Button onClick={clearFilters} variant={activeFilters.length ? 'contained' : 'text'}>Filtreleri Temizle</Button></Grid>{activeFilters.length ? <Grid item xs={12}><Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>{activeFilters.map(([key, value]) => <Chip key={key} label={filterLabel(key, value)} onDelete={() => setFilter(key, '')} color="primary" variant="outlined" />)}</Stack></Grid> : null}</Grid></Paper>
-    <Paper sx={{ border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden', maxWidth: '100%' }}><TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'auto' }}><Table size="small" sx={{ minWidth: 1590, tableLayout: 'fixed', '& th': { bgcolor: '#f8fafc', fontWeight: 900, whiteSpace: 'nowrap' }, '& td': { py: .85, verticalAlign: 'middle' }, '& tbody tr:hover td': { bgcolor: '#eef6ff' }, '& tbody tr:hover td:last-of-type': { bgcolor: '#eef6ff' } }}><TableHead><TableRow>{[
-      ['Kayıt No', 90], ['Başlık', 310], ['Seviye', 100], ['Birim', 180], ['İlgili Kişi', 160], ['Durum', 130], ['Termin', 120], ['Termin Değişim Sayısı', 150], ['Son Güncelleme', 150],
-    ].map(([h, width]) => <TableCell key={h} sx={{ width, minWidth: width }}>{h}</TableCell>)}<TableCell sx={{ ...actionCellSx, zIndex: 4 }}>İşlem</TableCell></TableRow></TableHead><TableBody>{visible.length ? visible.map((r) => <TableRow key={r.id} sx={{ '& td': { bgcolor: isOverdue(r) ? '#fff1f2' : isDueSoon(r) ? '#fffbeb' : r.status === 'Kapatıldı' ? '#f0fdf4' : '#fff' } }}><TableCell sx={{ width: 90 }}>{r.record_no || '-'}</TableCell><TableCell sx={{ width: 310 }}><Tooltip title={r.title || '-'}><Typography noWrap fontWeight={700}>{r.title || '-'}</Typography></Tooltip></TableCell><TableCell sx={{ width: 100 }}><SeverityChip severity={r.severity} /></TableCell><TableCell sx={{ width: 180 }}><Tooltip title={r.related_unit || '-'}><Typography sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.25 }}>{r.related_unit || '-'}</Typography></Tooltip></TableCell><TableCell sx={{ width: 160 }}>{r.related_person || '-'}</TableCell><TableCell sx={{ width: 130 }}><StatusChip status={r.status} /></TableCell><TableCell sx={{ width: 120 }}>{formatDay(r.active_due_date)}</TableCell><TableCell sx={{ width: 150 }}>{r.due_date_change_count ?? 0}</TableCell><TableCell sx={{ width: 150 }}>{formatDate(r.updated_at)}</TableCell><TableCell sx={actionCellSx}><Stack direction="row" spacing={.5} useFlexGap flexWrap="wrap"><Tooltip title="Bulgu detayını göster"><Button size="small" variant="text" onClick={() => setDetail(r)}>Detay</Button></Tooltip><Tooltip title="Bulgu bilgilerini düzenle"><Button size="small" variant="text" onClick={() => setEditing(r)}>Düzenle</Button></Tooltip><Tooltip title={r.status === 'Kapatıldı' ? 'Bulguyu tekrar aç' : 'Bulguyu kapat'}><Button size="small" variant="outlined" onClick={async () => { await (r.status === 'Kapatıldı' ? reopenFindingApi(r.id) : closeFindingApi(r.id)); reloadAll(); }}>{r.status === 'Kapatıldı' ? 'Aç' : 'Kapat'}</Button></Tooltip><Tooltip title="Bulguyu sil"><Button size="small" color="error" variant="contained" onClick={async () => { await deleteFinding(r.id); reloadAll(); }}>Sil</Button></Tooltip></Stack></TableCell></TableRow>) : <TableRow><TableCell colSpan={10} align="center">Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer><TablePagination component="div" count={rows.length} page={page} rowsPerPage={rowsPerPage} onPageChange={(_, p) => setPage(p)} rowsPerPageOptions={[10, 25, 50, 100]} onRowsPerPageChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }} labelRowsPerPage="Sayfa başına" /></Paper>
+    <Paper sx={{ border: '1px solid rgba(15,47,87,.08)', overflow: 'hidden', maxWidth: '100%' }}><TableContainer sx={{ width: '100%', maxWidth: '100%', overflowX: 'hidden' }}><Table size="small" sx={{ width: '100%', tableLayout: 'fixed', '& th': { bgcolor: '#f8fafc', fontWeight: 800, whiteSpace: 'normal', lineHeight: 1.15, px: 1 }, '& td': { py: .75, px: 1, verticalAlign: 'middle', overflow: 'hidden' }, '& tbody tr:hover td': { bgcolor: '#eef6ff' }, '& tbody tr:hover td:last-of-type': { bgcolor: '#eef6ff' } }}><TableHead><TableRow>{[
+      ['Kayıt No', '6%'], ['Başlık', '20%'], ['Seviye', '7%'], ['Birim', '12%'], ['İlgili Kişi', '9%'], ['Durum', '8%'], ['Termin', '7%'], ['Termin Rev.', '6%'], ['Son Güncelleme', '8%'],
+    ].map(([h, width]) => <TableCell key={h} sx={{ width }}>{h}</TableCell>)}<TableCell sx={{ ...actionCellSx, zIndex: 4, bgcolor: '#f8fafc' }}>İşlem</TableCell></TableRow></TableHead><TableBody>{visible.length ? visible.map((r) => <TableRow key={r.id} sx={{ '& td': { bgcolor: rowBg(r) } }}><TableCell><Typography noWrap variant="body2" fontWeight={700}>{r.record_no || '-'}</Typography></TableCell><TableCell><Tooltip title={r.title || '-'}><Typography noWrap fontWeight={700}>{r.title || '-'}</Typography></Tooltip></TableCell><TableCell><SeverityChip severity={r.severity} /></TableCell><TableCell><Tooltip title={r.related_unit || '-'}><Typography variant="body2" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.25 }}>{r.related_unit || '-'}</Typography></Tooltip></TableCell><TableCell><Typography noWrap variant="body2">{r.related_person || '-'}</Typography></TableCell><TableCell><StatusChip status={r.status} /></TableCell><TableCell>{formatDay(r.active_due_date)}</TableCell><TableCell>{r.due_date_change_count ?? 0}</TableCell><TableCell>{formatShortDateTime(r.updated_at)}</TableCell><TableCell sx={{ ...actionCellSx, bgcolor: rowBg(r) }}><Stack direction="row" spacing={.5} useFlexGap alignItems="center" sx={{ flexWrap: 'nowrap' }}><Tooltip title="Bulgu detayını göster"><Button size="small" variant="text" sx={{ minWidth: 0, px: .55, fontSize: 12 }} onClick={() => setDetail(r)}>Detay</Button></Tooltip><Tooltip title="Bulgu bilgilerini düzenle"><Button size="small" variant="text" sx={{ minWidth: 0, px: .55, fontSize: 12 }} onClick={() => setEditing(r)}>Düzenle</Button></Tooltip><Button size="small" variant="outlined" sx={{ minWidth: 0, px: .55, fontSize: 12 }} onClick={(e) => setActionMenu({ anchor: e.currentTarget, row: r })}>İşlemler</Button></Stack></TableCell></TableRow>) : <TableRow><TableCell colSpan={10} align="center">Kayıt yok.</TableCell></TableRow>}</TableBody></Table></TableContainer><Menu anchorEl={actionMenu?.anchor} open={Boolean(actionMenu)} onClose={() => setActionMenu(null)}><MenuItem onClick={() => closeOrReopen(actionMenu.row)}>{actionMenu?.row?.status === 'Kapatıldı' ? 'Yeniden Aç' : 'Kapatıldı Yap'}</MenuItem><MenuItem sx={{ color: 'error.main', fontWeight: 700 }} onClick={async () => { await deleteFinding(actionMenu.row.id); setActionMenu(null); reloadAll(); }}>Sil</MenuItem></Menu><TablePagination component="div" count={rows.length} page={page} rowsPerPage={rowsPerPage} onPageChange={(_, p) => setPage(p)} rowsPerPageOptions={[10, 25, 50, 100]} onRowsPerPageChange={(e) => { setRowsPerPage(Number(e.target.value)); setPage(0); }} labelRowsPerPage="Sayfa başına" /></Paper>
     <FindingDetail finding={detail} onClose={() => setDetail(null)} show={show} />
     <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} maxWidth="md" fullWidth><DialogTitle>Bulgu Düzenle</DialogTitle><DialogContent dividers>{editing && <FindingForm initial={editing} onSubmit={saveEdit} submitLabel="Güncelle" />}</DialogContent></Dialog>
   </Stack>;
@@ -205,8 +215,8 @@ function DefenderPage({ show, refreshApp }) {
   const convertCve = async (row) => { try { const res = await convertDefenderCve(row.cve_id); show(res.message || 'Defender CVE bulguya dönüştürüldü.', res.status === 'duplicate' ? 'warning' : 'success'); refreshApp(); } catch (e) { show(e.message, 'error'); } };
   const convertMachine = async (row) => { try { const res = await convertDefenderMachine({ cve_id: row.cve_id, machine_id: row.machine_id }); show(res.message || 'Defender cihaz zafiyeti bulguya dönüştürüldü.', res.status === 'duplicate' ? 'warning' : 'success'); refreshApp(); } catch (e) { show(e.message, 'error'); } };
   const topCards = [['Toplam CVE', dashboard.total_cve], ['Kritik CVE', dashboard.critical_cve], ['Yüksek CVE', dashboard.high_cve], ['Etkilenen Cihaz', dashboard.affected_machines], ['Açıkta Olan Uygulama', dashboard.exposed_applications], ['Public Exploit Olanlar', dashboard.public_exploit], ['Verified Exploit Olanlar', dashboard.verified_exploit], ['Remediation Bekleyenler', dashboard.pending_remediation], ['Son Sync', dashboard.last_sync ? formatDate(dashboard.last_sync) : '-']];
-  return <Stack spacing={2.5}><SectionHeader title="Defender Zafiyetleri" description="Microsoft Defender Vulnerability Management CVE, cihaz/yazılım ve remediation görünümü." />{dashboard.demo && <Alert severity="warning">Defender entegrasyonu yapılandırılmadı. Gösterilen veriler demo amaçlıdır.</Alert>}<Stack direction="row" spacing={1}><Button variant="contained" onClick={() => load().then(() => show('Defender verileri yenilendi.', 'success'))}>Yenile</Button><Button variant="outlined" href={defenderExportUrl()}>Excel Export</Button></Stack><Grid container spacing={2}>{topCards.map(([label, value]) => <Grid item xs={12} sm={6} md={4} lg={2.4} key={label}><SummaryCard label={label} value={value ?? 0} /></Grid>)}</Grid>
-    <Grid container spacing={2}><Grid item xs={12} md={4}><DataTable title="Severity Dağılımı" rows={dashboard.severity_distribution || []} columns={[{ key: 'name', label: 'Severity' }, { key: 'count', label: 'Adet' }]} /></Grid><Grid item xs={12} md={4}><DataTable title="En Çok Açık Görülen Uygulamalar" rows={dashboard.top_applications || []} columns={[{ key: 'name', label: 'Uygulama' }, { key: 'count', label: 'Adet' }]} /></Grid><Grid item xs={12} md={4}><DataTable title="En Çok Etkilenen Cihazlar" rows={dashboard.top_machines || []} columns={[{ key: 'name', label: 'Cihaz' }, { key: 'count', label: 'Adet' }]} /></Grid><Grid item xs={12} md={4}><DataTable title="Üretici Bazlı Açık Dağılımı" rows={dashboard.vendor_distribution || []} columns={[{ key: 'name', label: 'Üretici' }, { key: 'count', label: 'Adet' }]} /></Grid><Grid item xs={12} md={4}><DataTable title="CVE Trendi" rows={dashboard.cve_trend || []} columns={[{ key: 'name', label: 'Tarih' }, { key: 'count', label: 'Adet' }]} /></Grid><Grid item xs={12} md={4}><DataTable title="Remediation Önerileri Dağılımı" rows={dashboard.recommendation_distribution || []} columns={[{ key: 'name', label: 'Tip' }, { key: 'count', label: 'Adet' }]} /></Grid></Grid>
+  return <Stack spacing={2.5}><SectionHeader title="Defender Zafiyetleri" description="Microsoft Defender Vulnerability Management CVE, cihaz/yazılım ve remediation görünümü." />{dashboard.demo && <Alert severity="warning">Defender entegrasyonu yapılandırılmadı. Gösterilen veriler demo amaçlıdır.</Alert>}<Stack direction="row" spacing={1}><Button variant="contained" onClick={() => load().then(() => show('Defender verileri yenilendi.', 'success'))}>Yenile</Button><Button variant="outlined" href={defenderExportUrl()}>Excel Export</Button></Stack><Box sx={gridSx(190)}>{topCards.map(([label, value], index) => <SummaryCard key={label} label={label} value={value ?? 0} accent={[CARD_ACCENTS.total, CARD_ACCENTS.critical, CARD_ACCENTS.high, CARD_ACCENTS.info, CARD_ACCENTS.info, CARD_ACCENTS.overdue, CARD_ACCENTS.urgent, CARD_ACCENTS.dueSoon, CARD_ACCENTS.closed][index] || CARD_ACCENTS.info} />)}</Box>
+    <Box sx={gridSx(320)}><DataTable title="Severity Dağılımı" rows={dashboard.severity_distribution || []} columns={[{ key: 'name', label: 'Severity' }, { key: 'count', label: 'Adet' }]} /><DataTable title="En Çok Açık Görülen Uygulamalar" rows={dashboard.top_applications || []} columns={[{ key: 'name', label: 'Uygulama' }, { key: 'count', label: 'Adet' }]} /><DataTable title="En Çok Etkilenen Cihazlar" rows={dashboard.top_machines || []} columns={[{ key: 'name', label: 'Cihaz' }, { key: 'count', label: 'Adet' }]} /><DataTable title="Üretici Bazlı Açık Dağılımı" rows={dashboard.vendor_distribution || []} columns={[{ key: 'name', label: 'Üretici' }, { key: 'count', label: 'Adet' }]} /><DataTable title="CVE Trendi" rows={dashboard.cve_trend || []} columns={[{ key: 'name', label: 'Tarih' }, { key: 'count', label: 'Adet' }]} /><DataTable title="Remediation Önerileri Dağılımı" rows={dashboard.recommendation_distribution || []} columns={[{ key: 'name', label: 'Tip' }, { key: 'count', label: 'Adet' }]} /></Box>
     <Paper><Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable"><Tab label="CVE Listesi" /><Tab label="Cihaz/Yazılım Zafiyetleri" /><Tab label="Öneriler" /></Tabs></Paper>
     {tab === 0 && <DataTable title="Defender CVE Listesi" rows={vulns} columns={[{ key: 'cve_id', label: 'CVE ID' }, { key: 'description', label: 'Açıklama' }, { key: 'severity', label: 'Severity', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'cvss_v3', label: 'CVSS' }, { key: 'exposed_machines', label: 'Etkilenen Cihaz' }, { key: 'public_exploit', label: 'Public Exploit', render: (r) => r.public_exploit ? 'Evet' : 'Hayır' }, { key: 'exploit_verified', label: 'Verified Exploit', render: (r) => r.exploit_verified ? 'Evet' : 'Hayır' }, { key: 'epss', label: 'EPSS' }, { key: 'published_on', label: 'Yayınlanma', render: (r) => formatDay(r.published_on) }, { key: 'updated_on', label: 'Güncellenme', render: (r) => formatDay(r.updated_on) }, { key: 'status', label: 'Durum' }, { key: 'msrc_match', label: 'MSRC', render: (r) => r.msrc_match ? <Chip label="MSRC Var" color="success" size="small" /> : <Chip label="MSRC kaydı bulunamadı" size="small" /> }]} actions={(r) => <Stack direction="row" spacing={1}><Button size="small" onClick={() => setDetail({ type: 'cve', row: r })}>Detay Gör</Button><Button size="small" onClick={() => convertCve(r)}>Bulguya Dönüştür</Button><Button size="small" onClick={() => setDetail({ type: 'msrc', row: r })}>MSRC ile Eşleştir</Button></Stack>} />}
     {tab === 1 && <DataTable title="Cihaz/Yazılım Zafiyetleri" rows={machines} columns={[{ key: 'machine_name', label: 'Cihaz Adı' }, { key: 'machine_id', label: 'Cihaz ID' }, { key: 'cve_id', label: 'CVE ID' }, { key: 'product_vendor', label: 'Üretici' }, { key: 'product_name', label: 'Uygulama' }, { key: 'product_version', label: 'Versiyon' }, { key: 'severity', label: 'Severity', render: (r) => <SeverityChip severity={r.severity} /> }, { key: 'fixing_kb_id', label: 'Fixing KB' }, { key: 'recommendation_id', label: 'Recommendation ID' }, { key: 'remediation_status', label: 'Remediation Status' }, { key: 'first_seen', label: 'İlk Görülme', render: (r) => formatDay(r.first_seen) }, { key: 'last_seen', label: 'Son Görülme', render: (r) => formatDay(r.last_seen) }]} actions={(r) => <Stack direction="row" spacing={1}><Button size="small" onClick={() => setDetail({ type: 'machine', row: r })}>Detay Gör</Button><Button size="small" onClick={() => convertMachine(r)}>Bulguya Dönüştür</Button></Stack>} />}
