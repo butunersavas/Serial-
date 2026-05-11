@@ -223,6 +223,44 @@ def product_ids(value: Any) -> list[str]:
     return ids
 
 
+
+def vulnerability_product_ids(vulnerability: dict[str, Any]) -> list[str]:
+    """Collect ProductID references from a CVRF Vulnerability node."""
+    ids: list[str] = []
+
+    def add(values: Any) -> None:
+        for pid in product_ids(values):
+            if pid and pid not in ids:
+                ids.append(pid)
+
+    statuses = vulnerability.get("ProductStatuses") or vulnerability.get("ProductStatus") or []
+    if isinstance(statuses, dict) and "Status" in statuses:
+        statuses = statuses.get("Status")
+    for status in as_list(statuses):
+        if isinstance(status, dict):
+            add(status.get("ProductID") or status.get("ProductIDs"))
+
+    threats = vulnerability.get("Threats") or vulnerability.get("Threat") or []
+    if isinstance(threats, dict) and "Threat" in threats:
+        threats = threats.get("Threat")
+    for threat in as_list(threats):
+        if isinstance(threat, dict):
+            add(threat.get("ProductID") or threat.get("ProductIDs"))
+
+    for remediation in remediation_rows(vulnerability):
+        add(remediation.get("ProductID") or remediation.get("ProductIDs"))
+
+    return ids
+
+
+def product_names_for_ids(products: dict[str, str], ids: list[str]) -> str:
+    names: list[str] = []
+    for pid in ids:
+        name = products.get(pid, pid).strip() if pid else ""
+        if name and name not in names:
+            names.append(name)
+    return ", ".join(names)
+
 def threat_by_type(vulnerability: dict[str, Any], product_id: str, wanted: set[str]) -> str:
     threats = vulnerability.get("Threats") or vulnerability.get("Threat") or []
     if isinstance(threats, dict) and "Threat" in threats:
@@ -273,6 +311,8 @@ def normalize_msrc_items(parsed_data: dict[str, Any]) -> list[dict[str, Any]]:
         description = note_description(vuln)
         release_date = parse_date(vuln.get("ReleaseDate") or vuln.get("InitialReleaseDate")) or document_release_date
         remediations = remediation_rows(vuln) or [{}]
+        affected_product_ids = vulnerability_product_ids(vuln)
+        affected_products = product_names_for_ids(products, affected_product_ids)
         exploited = False
         publicly_disclosed = False
         for threat in as_list((vuln.get("Threats") or {}).get("Threat") if isinstance(vuln.get("Threats"), dict) else vuln.get("Threats")):
@@ -290,8 +330,9 @@ def normalize_msrc_items(parsed_data: dict[str, Any]) -> list[dict[str, Any]]:
             kb_article = kb_match.group(0).upper() if kb_match else (kb if kb.upper().startswith("KB") else "")
             fixed_build = first_text(remediation.get("FixedBuild") or remediation.get("RestartRequired"))
             url = first_text(remediation.get("URL") or remediation.get("Url"))
+            row_products = affected_products or product_names_for_ids(products, ids)
             for pid in ids:
-                product = products.get(pid, pid) if pid else ""
+                product = row_products or (products.get(pid, pid) if pid else "")
                 severity = threat_by_type(vuln, pid, {"severity", "maximum severity"}) or first_text(vuln.get("Severity"))
                 impact = threat_by_type(vuln, pid, {"impact"}) or first_text(vuln.get("Impact"))
                 rows.append({
