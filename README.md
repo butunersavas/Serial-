@@ -1,6 +1,6 @@
-# Siber Risk ve Bulgu Yönetimi
+# Risk ve Bulgu Yönetimi
 
-Excel üzerinden gelen güvenlik testi bulgularını web arayüzüne aktarmak, açık/kapatıldı durumlarını yönetmek, durum seviyesine göre gösterge paneli üretmek ve temiz Excel raporu dışa aktarmak için hazırlanmış örnek web uygulamasıdır.
+Excel üzerinden gelen güvenlik testi bulgularını web arayüzüne aktarmak, açık/kapatıldı durumlarını yönetmek, durum seviyesine göre dashboard üretmek ve temiz Excel raporu dışa aktarmak için hazırlanmış örnek web uygulamasıdır.
 
 ## Teknoloji Yığını
 
@@ -48,9 +48,9 @@ Bulgular ekranında aşağıdaki kolonlar gösterilir ve düzenlenebilir alanlar
 - Orta
 - Düşük
 
-### Özet / Gösterge Paneli
+### Özet / Dashboard
 
-Gösterge panelinde şu kartlar bulunur:
+Dashboard ekranında şu kartlar bulunur:
 
 - Toplam Bulgu
 - Kapatılan
@@ -127,7 +127,7 @@ docker compose down -v
 3. Üst menüdeki **Excel İçe Aktar** butonu ile güvenlik bulgularını yükleyin.
 4. **Bulgular** sekmesinde kayıtları filtreleyin, düzenleyin ve durumlarını yönetin.
 5. Kapatılan kayıtlar açık yeşil renkte görüntülenir.
-6. **Özet / Gösterge Paneli** sekmesinde toplam/kapatılan/açık kalan metriklerini izleyin.
+6. **Özet / Dashboard** sekmesinde toplam/kapatılan/açık kalan metriklerini izleyin.
 7. **Excel Dışa Aktar** butonu ile `Ozet` ve `Bulgular` sayfalarını içeren raporu indirin.
 
 ## API Özet
