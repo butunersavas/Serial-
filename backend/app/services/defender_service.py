@@ -8,7 +8,11 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from .defender_auth_service import DefenderAuthService
+from .defender_auth_service import (
+    SSL_CERTIFICATE_ERROR_MESSAGE,
+    DefenderAuthService,
+    is_ssl_certificate_verification_error,
+)
 
 DEFAULT_DEFENDER_API_BASE_URL = "https://api.security.microsoft.com"
 
@@ -50,8 +54,19 @@ class DefenderService:
         except TimeoutError as exc:
             raise DefenderApiError("Defender API zaman aşımına uğradı.", 504) from exc
         except ssl.SSLError as exc:
+            if is_ssl_certificate_verification_error(exc):
+                raise DefenderApiError(SSL_CERTIFICATE_ERROR_MESSAGE, 502) from exc
+            raise DefenderApiError("Defender API bağlantısında SSL veya proxy kaynaklı hata oluştu.", 502) from exc
+        except urllib.error.URLError as exc:
+            if is_ssl_certificate_verification_error(exc):
+                raise DefenderApiError(SSL_CERTIFICATE_ERROR_MESSAGE, 502) from exc
+            message = str(exc)
+            if "timed out" in message.lower():
+                raise DefenderApiError("Defender API zaman aşımına uğradı.", 504) from exc
             raise DefenderApiError("Defender API bağlantısında SSL veya proxy kaynaklı hata oluştu.", 502) from exc
         except Exception as exc:
+            if is_ssl_certificate_verification_error(exc):
+                raise DefenderApiError(SSL_CERTIFICATE_ERROR_MESSAGE, 502) from exc
             message = str(exc)
             if "timed out" in message.lower():
                 raise DefenderApiError("Defender API zaman aşımına uğradı.", 504) from exc
