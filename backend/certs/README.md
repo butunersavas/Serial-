@@ -1,15 +1,24 @@
 # Backend trusted CA certificates
 
-Place the corporate SSL inspection/proxy root CA certificate here as:
+Bu klasör, backend Docker image build aşamasında kurum proxy / SSL
+inspection root CA sertifikasını container trust store içine eklemek için
+ayrılmıştır. Sertifikayı PEM/CRT formatında şu adla koyun:
 
 ```text
 backend/certs/company-root-ca.crt
 ```
 
-During the backend Docker image build, this optional certificate is copied to
-`/usr/local/share/ca-certificates/company-root-ca.crt` and registered with
-`update-ca-certificates`. If the file is not present, the Docker build continues
-with the default Debian CA trust store.
+Docker build sırasında bu opsiyonel sertifika şu hedefe güvenli dosya
+izinleriyle kopyalanır:
 
-Do not disable Python SSL verification for Defender API calls; the backend uses
-`ssl.create_default_context()` and relies on the container trust store.
+```text
+/usr/local/share/ca-certificates/company-root-ca.crt
+```
+
+Ardından `update-ca-certificates` çalıştırılarak Debian/OpenSSL CA deposuna
+kaydedilir. Dosya yoksa build başarısız olmaz; varsayılan Debian CA trust
+store kullanılmaya devam eder.
+
+Defender API SSL doğrulaması kapatılmamalıdır. Backend, Python
+`ssl.create_default_context()` ile container trust store'a güvenir; güvenli
+olmayan SSL doğrulama baypasları kullanılmamalıdır.
