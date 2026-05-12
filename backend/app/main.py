@@ -848,8 +848,10 @@ def update_defender_settings(payload: DefenderSettingsIn, db: Session = Depends(
 @api.post("/defender/test-connection")
 def defender_test_connection(db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> dict[str, Any]:
     settings = get_defender_settings_row(db, create=False)
-    if not defender_configured(settings):
+    if not settings or not (settings.tenant_id and settings.client_id and settings.client_secret_encrypted_or_masked):
         raise HTTPException(status_code=400, detail="Defender entegrasyonu yapılandırılmadı. Tenant ID, Client ID ve Client Secret bilgilerini kontrol edin.")
+    if not settings.integration_enabled:
+        raise HTTPException(status_code=400, detail="Defender entegrasyonu etkin değil. Ayarlar ekranından entegrasyonu etkinleştirin.")
     try:
         service = DefenderService()
         service.vulnerabilities(settings, **{"$top": 1})
@@ -860,6 +862,7 @@ def defender_test_connection(db: Session = Depends(get_db), current_actor: str =
         db.commit()
         return {"status": "success", "message": "Bağlantı başarılı."}
     except (DefenderApiError, DefenderAuthError) as exc:
+        logger.exception("Defender bağlantı testi başarısız: %s", exc)
         settings.last_test_status = "failed"
         settings.last_test_message = str(exc)
         settings.last_test_at = datetime.now(timezone.utc)

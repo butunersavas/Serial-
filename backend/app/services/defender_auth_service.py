@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import ssl
 import time
 import urllib.error
@@ -9,8 +10,10 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-TOKEN_SCOPE = "https://api.securitycenter.microsoft.com/.default"
+DEFENDER_TOKEN_SCOPE = "https://api.securitycenter.microsoft.com/.default"
 TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,7 +42,7 @@ class DefenderAuthService:
             {
                 "client_id": client_id,
                 "client_secret": client_secret,
-                "scope": TOKEN_SCOPE,
+                "scope": DEFENDER_TOKEN_SCOPE,
                 "grant_type": "client_credentials",
             }
         ).encode()
@@ -54,16 +57,34 @@ class DefenderAuthService:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="ignore")
+            azure_error = detail
+            try:
+                error_payload = json.loads(detail) if detail else {}
+                azure_error = ": ".join(
+                    str(part) for part in (error_payload.get("error"), error_payload.get("error_description")) if part
+                ) or detail
+            except json.JSONDecodeError:
+                azure_error = detail
+            logger.error(
+                "Defender token alınamadı. Azure yanıtı: status=%s error=%s",
+                exc.code,
+                azure_error,
+            )
             raise DefenderAuthError("Defender API için token alınamadı. Tenant ID, Client ID ve Client Secret bilgilerini kontrol edin.") from exc
         except TimeoutError as exc:
             raise DefenderAuthError("Defender API zaman aşımına uğradı.") from exc
         except ssl.SSLError as exc:
             raise DefenderAuthError("Defender API bağlantısında SSL veya proxy kaynaklı hata oluştu.") from exc
         except Exception as exc:
+            logger.exception("Defender token isteği beklenmeyen hata ile başarısız oldu.")
             raise DefenderAuthError("Defender API için token alınamadı. Tenant ID, Client ID ve Client Secret bilgilerini kontrol edin.") from exc
 
         token = payload.get("access_token")
         if not token:
+            logger.error(
+                "Defender token yanıtında access_token yok. Azure yanıt alanları: %s",
+                sorted(payload.keys()),
+            )
             raise DefenderAuthError("Defender API için token alınamadı. Tenant ID, Client ID ve Client Secret bilgilerini kontrol edin.")
         self._cache[cache_key] = {"access_token": token, "expires_at": now + int(payload.get("expires_in", 3600))}
         return str(token)
