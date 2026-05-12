@@ -92,6 +92,17 @@ export const getDefenderRecommendations = (filters = {}) => {
   Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
   return request(`/defender/recommendations?${params.toString()}`);
 };
+
+export const getDefenderAffectedDevices = (cveId, filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return request(`/defender/vulnerabilities/${encodeURIComponent(cveId)}/affected-devices${params.toString() ? `?${params.toString()}` : ''}`);
+};
+export const defenderAffectedDevicesExportUrl = (cveId, filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => { if (value !== '' && value !== false && value !== null && value !== undefined) params.append(key, value); });
+  return `${API_BASE_URL}/defender/vulnerabilities/${encodeURIComponent(cveId)}/affected-devices/export${params.toString() ? `?${params.toString()}` : ''}`;
+};
 export const convertDefenderCve = (cveId) => request(`/defender/vulnerabilities/${encodeURIComponent(cveId)}/convert-to-finding`, { method: 'POST', body: JSON.stringify({}) });
 export const convertDefenderMachine = (payload) => request('/defender/machines-vulnerabilities/convert-to-finding', { method: 'POST', body: JSON.stringify(payload) });
 export const defenderExportUrl = () => `${API_BASE_URL}/defender/export/excel`;

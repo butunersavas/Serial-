@@ -82,6 +82,10 @@ class DefenderService:
     def machines_vulnerabilities(self, settings: Any, **params: Any) -> list[dict[str, Any]]:
         return self.list_all(settings, "/api/vulnerabilities/machinesVulnerabilities", params)
 
+    def machine_references(self, settings: Any, cve_id: str, **params: Any) -> list[dict[str, Any]]:
+        quoted_cve = urllib.parse.quote(cve_id.strip())
+        return self.list_all(settings, f"/api/vulnerabilities/{quoted_cve}/machineReferences", params)
+
     def recommendations(self, settings: Any, **params: Any) -> list[dict[str, Any]]:
         return self.list_all(settings, "/api/recommendations", params)
 

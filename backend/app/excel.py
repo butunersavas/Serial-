@@ -462,6 +462,38 @@ def build_defender_export(summary: dict[str, Any], vulnerabilities: list[dict[st
     return stream.getvalue()
 
 
+def build_defender_affected_devices_export(devices: list[dict[str, Any]]) -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Etkilenen_Cihazlar"
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(bold=True, color="FFFFFF")
+    columns = [
+        ("Cihaz Adı", "device_name"),
+        ("OS", "os_platform"),
+        ("Vendor", "product_vendor"),
+        ("Ürün / Uygulama", "product_name"),
+        ("Ürün Versiyonu", "product_version"),
+        ("CVE", "cve_id"),
+        ("Seviye", "severity"),
+        ("KB", "fixing_kb_id"),
+        ("İlk Görülme", "first_seen"),
+        ("Son Görülme", "last_seen"),
+    ]
+    sheet.append([label for label, _ in columns])
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+    for device in devices:
+        sheet.append([excel_value(device.get(key)) for _, key in columns])
+    for column_cells in sheet.columns:
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        sheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length + 2, 12), 60)
+    stream = BytesIO()
+    workbook.save(stream)
+    return stream.getvalue()
+
+
 def build_msrc_export(summary: dict[str, Any], vulnerabilities: list[dict[str, Any]]) -> bytes:
     workbook = Workbook()
     summary_sheet = workbook.active

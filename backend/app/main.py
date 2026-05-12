@@ -18,7 +18,7 @@ from .database import Base, engine, get_db
 from .services.defender_auth_service import DefenderAuthError
 from .services.defender_service import DEFAULT_DEFENDER_API_BASE_URL, DefenderApiError, DefenderService
 from .services.msrc_service import MsrcApiError, fetch_msrc_cvrf, normalize_msrc_items, parse_msrc_cvrf
-from .excel import build_defender_export, build_export, build_import_template, build_msrc_export, import_findings, preview_findings
+from .excel import build_defender_affected_devices_export, build_defender_export, build_export, build_import_template, build_msrc_export, import_findings, preview_findings
 from .models import AuditLog, DefenderMachineVulnerability, DefenderRecommendation, DefenderSettings, DefenderSyncLog, DefenderVulnerability, Finding, FindingAction, MsrcVulnerability, SEVERITIES, STATUS_CLOSED, STATUS_OPEN, STATUSES, SystemLog
 from .schemas import ActionCreate, AuditLogOut, BulkIds, BulkUpdate, DefenderSettingsIn, FindingActionOut, FindingCreate, FindingOut, FindingUpdate, SystemLogOut
 
@@ -732,6 +732,85 @@ def map_machine_vulnerability(item: dict[str, Any]) -> dict[str, Any]:
     return {"cve_id": str(item.get("cveId") or item.get("cve_id") or item.get("id") or ""), "machine_id": str(item.get("machineId") or item.get("machine_id") or ""), "machine_name": item.get("machineName") or item.get("computerDnsName") or item.get("machine_name") or "", "product_vendor": item.get("productVendor") or item.get("product_vendor") or "", "product_name": item.get("productName") or item.get("product_name") or "", "product_version": item.get("productVersion") or item.get("product_version") or "", "severity": item.get("severity") or "", "fixing_kb_id": item.get("fixingKbId") or item.get("fixing_kb_id") or "", "recommendation_id": item.get("recommendationId") or item.get("recommendation_id") or "", "remediation_status": item.get("remediationStatus") or item.get("remediation_status") or "Open", "first_seen": parse_dt(item.get("firstSeen") or item.get("first_seen")), "last_seen": parse_dt(item.get("lastSeen") or item.get("last_seen")), "raw_json": json.dumps(item, ensure_ascii=False, default=str), "synced_at": datetime.now(timezone.utc)}
 
 
+
+def first_nonempty(*values: Any, default: str = "-") -> str:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return default
+
+
+def machine_reference_map(references: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(ref.get("id") or ""): ref for ref in references if ref.get("id")}
+
+
+def affected_device_payload(item: dict[str, Any], reference: dict[str, Any] | None = None) -> dict[str, Any]:
+    reference = reference or {}
+    machine_id = first_nonempty(item.get("machineId"), item.get("machine_id"), item.get("id"), default="")
+    return {
+        "device_id": machine_id or "-",
+        "device_name": first_nonempty(reference.get("computerDnsName"), reference.get("deviceName"), item.get("machineName"), item.get("computerDnsName"), item.get("machine_name"), machine_id),
+        "os_platform": first_nonempty(reference.get("osPlatform"), item.get("osPlatform"), item.get("os_platform")),
+        "rbac_group_name": first_nonempty(reference.get("rbacGroupName"), item.get("rbacGroupName"), item.get("rbac_group_name")),
+        "product_vendor": first_nonempty(item.get("productVendor"), item.get("product_vendor"), default=""),
+        "product_name": first_nonempty(item.get("productName"), item.get("product_name"), default=""),
+        "product_version": first_nonempty(item.get("productVersion"), item.get("product_version"), default=""),
+        "cve_id": first_nonempty(item.get("cveId"), item.get("cve_id"), default=""),
+        "severity": first_nonempty(item.get("severity"), default=""),
+        "fixing_kb_id": first_nonempty(item.get("fixingKbId"), item.get("fixing_kb_id"), default=""),
+        "first_seen": parse_dt(reference.get("firstSeen") or item.get("firstSeen") or item.get("first_seen")),
+        "last_seen": parse_dt(reference.get("lastSeen") or item.get("lastSeen") or item.get("last_seen")),
+    }
+
+
+def serialize_affected_device(device: dict[str, Any]) -> dict[str, Any]:
+    data = dict(device)
+    for key in ("first_seen", "last_seen"):
+        if isinstance(data.get(key), datetime):
+            data[key] = data[key].isoformat()
+    return data
+
+
+def db_machine_item(row: DefenderMachineVulnerability) -> dict[str, Any]:
+    data = serialize_model(row)
+    data["machineId"] = data.get("machine_id")
+    return data
+
+
+def affected_devices_from_db(db: Session, cve_id: str, product_vendor: str | None = None, product_name: str | None = None, product_version: str | None = None) -> list[dict[str, Any]]:
+    query = db.query(DefenderMachineVulnerability).filter(DefenderMachineVulnerability.cve_id == cve_id)
+    if product_vendor:
+        query = query.filter(DefenderMachineVulnerability.product_vendor == product_vendor)
+    if product_name:
+        query = query.filter(DefenderMachineVulnerability.product_name == product_name)
+    if product_version:
+        query = query.filter(DefenderMachineVulnerability.product_version == product_version)
+    return [affected_device_payload(db_machine_item(row)) for row in query.order_by(DefenderMachineVulnerability.last_seen.desc()).all()]
+
+
+def fetch_affected_devices(settings: DefenderSettings, cve_id: str, product_vendor: str | None = None, product_name: str | None = None, product_version: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
+    service = DefenderService()
+    filters: dict[str, Any] = {"$filter": f"cveId eq '{cve_id}'"}
+    machine_items = service.machines_vulnerabilities(settings, **filters)
+    if product_vendor:
+        machine_items = [item for item in machine_items if first_nonempty(item.get("productVendor"), item.get("product_vendor"), default="") == product_vendor]
+    if product_name:
+        machine_items = [item for item in machine_items if first_nonempty(item.get("productName"), item.get("product_name"), default="") == product_name]
+    if product_version:
+        machine_items = [item for item in machine_items if first_nonempty(item.get("productVersion"), item.get("product_version"), default="") == product_version]
+    references: list[dict[str, Any]] = []
+    warning: str | None = None
+    try:
+        references = service.machine_references(settings, cve_id)
+    except (DefenderApiError, DefenderAuthError):
+        warning = "Cihaz adları alınamadı, cihaz ID bilgisi gösteriliyor."
+    ref_by_id = machine_reference_map(references)
+    devices = [affected_device_payload(item, ref_by_id.get(str(item.get("machineId") or item.get("machine_id") or ""))) for item in machine_items]
+    return devices, warning
+
 def map_recommendation(item: dict[str, Any]) -> dict[str, Any]:
     rec_id = item.get("id") or item.get("recommendationId") or item.get("recommendation_id")
     return {"recommendation_id": str(rec_id), "product_name": item.get("productName") or item.get("product_name") or "", "vendor": item.get("vendor") or item.get("productVendor") or "", "recommendation_name": item.get("recommendationName") or item.get("recommendation_name") or item.get("name") or "", "recommendation_category": item.get("recommendationCategory") or item.get("category") or "", "severity_score": str(item.get("severityScore") or item.get("severity_score") or ""), "exposed_machines": int(item.get("exposedMachines") or item.get("exposed_machines") or 0), "remediation_type": item.get("remediationType") or item.get("remediation_type") or "", "status": item.get("status") or "Active", "config_score_impact": str(item.get("configScoreImpact") or ""), "exposure_impact": str(item.get("exposureImpact") or ""), "raw_json": json.dumps(item, ensure_ascii=False, default=str), "synced_at": datetime.now(timezone.utc)}
@@ -825,7 +904,11 @@ def list_defender_vulnerabilities(db: Session = Depends(get_db), cve_id: str | N
     if product_name:
         cves = {m.cve_id for m in db.query(DefenderMachineVulnerability).filter(DefenderMachineVulnerability.product_name.ilike(f"%{product_name}%")).all()}
         rows = [row for row in rows if row.cve_id in cves]
-    items = [serialize_model(row) | {"msrc_match": msrc_match_exists(db, row.cve_id)} for row in rows]
+    items = []
+    for row in rows:
+        sample_rows = db.query(DefenderMachineVulnerability).filter(DefenderMachineVulnerability.cve_id == row.cve_id).order_by(DefenderMachineVulnerability.last_seen.desc()).limit(5).all()
+        sample_devices = [first_nonempty(sample.machine_name, sample.machine_id) for sample in sample_rows]
+        items.append(serialize_model(row) | {"msrc_match": msrc_match_exists(db, row.cve_id), "sample_devices": sample_devices})
     return {"demo": False, "items": items}
 
 
@@ -851,6 +934,35 @@ def list_defender_recommendations(db: Session = Depends(get_db), product_name: s
     if vendor: query = query.filter(DefenderRecommendation.vendor.ilike(f"%{vendor}%"))
     if status: query = query.filter(DefenderRecommendation.status == status)
     return {"demo": False, "items": [serialize_model(row) for row in query.order_by(DefenderRecommendation.exposed_machines.desc()).all()]}
+
+
+@api.get("/defender/vulnerabilities/{cve_id}/affected-devices")
+def get_defender_affected_devices(cve_id: str, product_vendor: str | None = None, product_name: str | None = None, product_version: str | None = None, db: Session = Depends(get_db)) -> dict[str, Any]:
+    settings = get_defender_settings_row(db, create=False)
+    if defender_configured(settings):
+        try:
+            devices, warning = fetch_affected_devices(settings, cve_id, product_vendor, product_name, product_version)
+            return {"items": [serialize_affected_device(device) for device in devices], "warning": warning}
+        except (DefenderApiError, DefenderAuthError) as exc:
+            cached_devices = affected_devices_from_db(db, cve_id, product_vendor, product_name, product_version)
+            if cached_devices:
+                return {"items": [serialize_affected_device(device) for device in cached_devices], "warning": "Defender cihaz detayları alınamadı, kayıtlı bilgiler gösteriliyor."}
+            raise HTTPException(status_code=getattr(exc, "status_code", 400), detail=str(exc)) from exc
+    if db.query(DefenderMachineVulnerability).count() == 0:
+        devices = [affected_device_payload(item) for item in demo_defender_payload()["machines"] if item["cve_id"] == cve_id]
+    else:
+        devices = affected_devices_from_db(db, cve_id, product_vendor, product_name, product_version)
+    return {"items": [serialize_affected_device(device) for device in devices], "warning": None}
+
+
+@api.get("/defender/vulnerabilities/{cve_id}/affected-devices/export")
+def export_defender_affected_devices(cve_id: str, product_vendor: str | None = None, product_name: str | None = None, product_version: str | None = None, db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> StreamingResponse:
+    payload = get_defender_affected_devices(cve_id, product_vendor, product_name, product_version, db)
+    content = build_defender_affected_devices_export(payload["items"])
+    add_system_log(db, "defender_affected_devices_export", "Defender etkilenen cihaz listesi dışa aktarıldı", {"cve_id": cve_id, "count": len(payload["items"])}, current_actor)
+    db.commit()
+    filename = f"defender-{cve_id}-etkilenen-cihazlar.xlsx"
+    return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 @api.get("/defender/dashboard")
