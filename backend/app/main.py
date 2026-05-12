@@ -142,6 +142,30 @@ def split_related_people(value: str | None) -> list[str]:
     return [part.strip() for part in re.split(r"[,;\n]+", value or "") if part.strip()]
 
 
+def display_record_no(value: Any) -> str:
+    return re.sub(r"^IMPORT-", "", str(value or "").strip(), flags=re.IGNORECASE)
+
+
+def record_no_number(value: Any) -> int | None:
+    match = re.search(r"\d+", display_record_no(value))
+    return int(match.group(0)) if match else None
+
+
+def next_numeric_record_no(db: Session) -> str:
+    max_no = 0
+    existing: set[str] = set()
+    for (record_no,) in db.query(Finding.record_no).all():
+        raw = str(record_no or "").strip()
+        existing.add(raw)
+        number = record_no_number(raw)
+        if number and number > max_no:
+            max_no = number
+    candidate = max_no + 1
+    while str(candidate) in existing or f"IMPORT-{candidate}" in existing:
+        candidate += 1
+    return str(candidate)
+
+
 def as_out(finding: Finding) -> dict[str, Any]:
     refresh_sla(finding)
     data = FindingOut.model_validate(finding).model_dump(mode="json")
@@ -266,8 +290,12 @@ def list_findings(
         else:
             query = query.filter(Finding.source == source)
     if search:
-        like = f"%{search}%"
-        query = query.filter(or_(Finding.record_no.ilike(like), Finding.title.ilike(like), Finding.description.ilike(like), Finding.recommendation.ilike(like), Finding.related_unit.ilike(like), Finding.related_person.ilike(like)))
+        terms = {str(search).strip(), display_record_no(search)}
+        if display_record_no(search):
+            terms.add(f"IMPORT-{display_record_no(search)}")
+        record_filters = [Finding.record_no.ilike(f"%{term}%") for term in terms if term]
+        text_like = f"%{search}%"
+        query = query.filter(or_(*(record_filters + [Finding.title.ilike(text_like), Finding.description.ilike(text_like), Finding.recommendation.ilike(text_like), Finding.related_unit.ilike(text_like), Finding.related_person.ilike(text_like)])))
     today = date.today()
     if approaching_due or due_state == "Termin Yaklaşan":
         query = query.filter(Finding.status != STATUS_CLOSED, due_column().between(today, today + timedelta(days=7)))
@@ -313,9 +341,11 @@ def get_finding(finding_id: int, db: Session = Depends(get_db)) -> dict[str, Any
 def create_finding(payload: FindingCreate, db: Session = Depends(get_db), current_actor: str = Depends(actor)) -> dict[str, Any]:
     validate_choice(payload.severity, SEVERITIES, "Durum seviyesi")
     validate_choice(payload.status, STATUSES, "Durum")
-    if db.query(Finding).filter(Finding.record_no == payload.record_no).one_or_none():
+    data = payload.model_dump()
+    data["record_no"] = display_record_no(data.get("record_no")) if str(data.get("record_no") or "").strip() else next_numeric_record_no(db)
+    if db.query(Finding).filter(or_(Finding.record_no == data["record_no"], Finding.record_no == f"IMPORT-{data['record_no']}" )).one_or_none():
         raise HTTPException(status_code=409, detail="Bu kayıt no zaten var")
-    finding = Finding(**payload.model_dump(), assigned_to=payload.related_person)
+    finding = Finding(**data, assigned_to=data.get("related_person") or "")
     refresh_sla(finding)
     if finding.status == STATUS_CLOSED:
         finding.closed_at = datetime.now(timezone.utc)
@@ -343,6 +373,9 @@ def apply_update(db: Session, finding: Finding, data: dict[str, Any], current_ac
         finding.closed_at = now
         finding.closed_by = current_actor
         add_finding_action(db, finding, "closed", current_actor, old_status, finding.status, note or "Bulgu kapatıldı")
+    elif old_status == STATUS_CLOSED and finding.status == STATUS_CLOSED and not finding.closed_at:
+        finding.closed_at = now
+        finding.closed_by = current_actor
     elif old_status == STATUS_CLOSED and finding.status != STATUS_CLOSED:
         finding.closed_at = None
         finding.closed_by = None
@@ -366,6 +399,8 @@ def update_finding(finding_id: int, payload: FindingUpdate, db: Session = Depend
     if not finding:
         raise HTTPException(status_code=404, detail="Bulgu bulunamadı")
     data = payload.model_dump(exclude_unset=True)
+    if "record_no" in data and data["record_no"] is not None:
+        data["record_no"] = display_record_no(data["record_no"])
     if "severity" in data and data["severity"] is not None:
         validate_choice(data["severity"], SEVERITIES, "Durum seviyesi")
     if "status" in data and data["status"] is not None:

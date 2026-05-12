@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import Any
 
@@ -13,6 +13,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.styles import Font, PatternFill
 from openpyxl import load_workbook
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from .models import Finding, SEVERITIES, STATUS_CLOSED, STATUS_OPEN
@@ -92,6 +93,37 @@ FORBIDDEN_IMPORT_FIELDS = {
     "created_at",
     "id",
 }
+
+
+def display_record_no(value: Any) -> str:
+    return re.sub(r"^IMPORT-", "", str(value or "").strip(), flags=re.IGNORECASE)
+
+
+def record_no_number(value: Any) -> int | None:
+    match = re.search(r"\d+", display_record_no(value))
+    return int(match.group(0)) if match else None
+
+
+def next_numeric_record_no(db: Session) -> str:
+    max_no = 0
+    for (record_no,) in db.query(Finding.record_no).all():
+        number = record_no_number(record_no)
+        if number and number > max_no:
+            max_no = number
+    candidate = max_no + 1
+    existing = {str(record_no or "").strip() for (record_no,) in db.query(Finding.record_no).all()}
+    while str(candidate) in existing or f"IMPORT-{candidate}" in existing:
+        candidate += 1
+    return str(candidate)
+
+
+def find_by_record_no(db: Session, record_no: Any) -> Finding | None:
+    clean = str(record_no or "").strip()
+    if not clean:
+        return None
+    display = display_record_no(clean)
+    alternates = {clean, display, f"IMPORT-{display}"}
+    return db.query(Finding).filter(or_(*[Finding.record_no == value for value in alternates if value])).first()
 
 
 def normalize_header(value: Any) -> str:
@@ -186,7 +218,7 @@ def clean_import_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def row_to_payload(row: tuple[Any, ...], header_map: dict[str, int], note_header_map: dict[str, int], fallback_no: int, source: str) -> dict[str, Any]:
     payload: dict[str, Any] = {field: "" for field in allowed_import_fields()}
-    payload.update({"record_no": f"IMPORT-{fallback_no}", "severity": "Orta", "status": STATUS_OPEN, "due_date": None, "new_due_date": None, "source": source})
+    payload.update({"record_no": "", "severity": "Orta", "status": STATUS_OPEN, "due_date": None, "new_due_date": None, "source": source})
     for field, index in header_map.items():
         if field not in IMPORT_FIELDS:
             continue
@@ -198,7 +230,7 @@ def row_to_payload(row: tuple[Any, ...], header_map: dict[str, int], note_header
         elif field == "severity":
             payload[field] = normalize_severity(value)
         else:
-            payload[field] = str(value or "").strip()
+            payload[field] = display_record_no(value) if field == "record_no" else str(value or "").strip()
     extra_notes: list[str] = []
     for label, index in note_header_map.items():
         value = row[index] if index < len(row) else None
@@ -239,10 +271,17 @@ def import_findings(db: Session, contents: bytes, filename: str, current_actor: 
     created = 0
     updated = 0
     for payload in payloads:
-        finding = db.query(Finding).filter(Finding.record_no == payload["record_no"]).one_or_none()
+        if not str(payload.get("record_no") or "").strip():
+            payload["record_no"] = next_numeric_record_no(db)
+        finding = find_by_record_no(db, payload["record_no"])
         if finding:
             for key, value in payload.items():
+                if key == "record_no":
+                    continue
                 setattr(finding, key, value)
+            if finding.status == STATUS_CLOSED and not finding.closed_at:
+                finding.closed_at = datetime.now(timezone.utc)
+                finding.closed_by = current_actor
             if action_callback:
                 action_callback(db, finding, "imported_update", current_actor, note=f"Excel import güncellemesi: {filename}")
             updated += 1
@@ -250,6 +289,9 @@ def import_findings(db: Session, contents: bytes, filename: str, current_actor: 
             finding = Finding(**payload)
             db.add(finding)
             db.flush()
+            if finding.status == STATUS_CLOSED and not finding.closed_at:
+                finding.closed_at = datetime.now(timezone.utc)
+                finding.closed_by = current_actor
             if action_callback:
                 action_callback(db, finding, "imported", current_actor, note=f"Excel import kaydı: {filename}")
             created += 1
@@ -324,6 +366,8 @@ def excel_value(value: Any) -> Any:
 
 
 def finding_value(finding: Finding, field: str) -> Any:
+    if field == "record_no":
+        return display_record_no(finding.record_no)
     if field == "active_due_date":
         return finding.new_due_date or finding.due_date
     return getattr(finding, field, "")
