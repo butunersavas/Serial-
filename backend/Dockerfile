@@ -10,9 +10,11 @@ RUN apt-get update \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Optional corporate proxy / SSL inspection root CA.
+# Place the PEM/CRT file at backend/certs/company-root-ca.crt before building.
 COPY certs/ /tmp/certs/
 RUN if [ -f /tmp/certs/company-root-ca.crt ]; then \
-        cp /tmp/certs/company-root-ca.crt /usr/local/share/ca-certificates/company-root-ca.crt \
+        install -m 0644 /tmp/certs/company-root-ca.crt /usr/local/share/ca-certificates/company-root-ca.crt \
         && update-ca-certificates; \
     else \
         echo "Optional backend/certs/company-root-ca.crt not provided; using default CA trust store."; \
