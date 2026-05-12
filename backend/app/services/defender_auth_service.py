@@ -15,6 +15,30 @@ TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 
 logger = logging.getLogger(__name__)
 
+SSL_CERTIFICATE_ERROR_MESSAGE = (
+    "Defender API bağlantısı SSL sertifika doğrulaması nedeniyle başarısız oldu. "
+    "Kurum proxy/root CA sertifikası backend container içine eklenmelidir."
+)
+
+
+def is_ssl_certificate_verification_error(exc: BaseException) -> bool:
+    """Return True when urllib/ssl wrapped a certificate verification failure."""
+    current: BaseException | object | None = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, ssl.SSLCertVerificationError):
+            return True
+        message = str(current).lower()
+        if "certificate_verify_failed" in message or "certificate verify failed" in message:
+            return True
+        current = (
+            getattr(current, "reason", None)
+            or getattr(current, "__cause__", None)
+            or getattr(current, "__context__", None)
+        )
+    return False
+
 
 @dataclass
 class DefenderAuthError(Exception):
@@ -74,8 +98,17 @@ class DefenderAuthService:
         except TimeoutError as exc:
             raise DefenderAuthError("Defender API zaman aşımına uğradı.") from exc
         except ssl.SSLError as exc:
+            if is_ssl_certificate_verification_error(exc):
+                raise DefenderAuthError(SSL_CERTIFICATE_ERROR_MESSAGE) from exc
             raise DefenderAuthError("Defender API bağlantısında SSL veya proxy kaynaklı hata oluştu.") from exc
+        except urllib.error.URLError as exc:
+            if is_ssl_certificate_verification_error(exc):
+                raise DefenderAuthError(SSL_CERTIFICATE_ERROR_MESSAGE) from exc
+            logger.exception("Defender token isteği URL hatası ile başarısız oldu.")
+            raise DefenderAuthError("Defender API için token alınamadı. Tenant ID, Client ID ve Client Secret bilgilerini kontrol edin.") from exc
         except Exception as exc:
+            if is_ssl_certificate_verification_error(exc):
+                raise DefenderAuthError(SSL_CERTIFICATE_ERROR_MESSAGE) from exc
             logger.exception("Defender token isteği beklenmeyen hata ile başarısız oldu.")
             raise DefenderAuthError("Defender API için token alınamadı. Tenant ID, Client ID ve Client Secret bilgilerini kontrol edin.") from exc
 

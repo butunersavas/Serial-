@@ -5,6 +5,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY certs/ /tmp/certs/
+RUN if [ -f /tmp/certs/company-root-ca.crt ]; then \
+        cp /tmp/certs/company-root-ca.crt /usr/local/share/ca-certificates/company-root-ca.crt \
+        && update-ca-certificates; \
+    else \
+        echo "Optional backend/certs/company-root-ca.crt not provided; using default CA trust store."; \
+    fi \
+    && rm -rf /tmp/certs
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org --trusted-host pypi.python.org -r requirements.txt
 
